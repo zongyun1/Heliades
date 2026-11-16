@@ -90,6 +90,8 @@ def transform_fuzz(B, seed):
     r = _rand_inputs(seed)
     uu = [B.add_patch(r.uniform(-1, 1, 3), r.uniform(0.1, 1, 2)) for _ in range(10)]
     uu += [B.add_triangle(r.normal(0, 1, 3), r.normal(0, 1, 3), r.normal(0, 1, 3)) for _ in range(10)]
+    B.add_tile((0, 0, 0), (1, 1), (0.2, 0.1), (2, 2))          # its members (next UUIDs) are locked
+    uu += list(range(20, 24))
     for _ in range(60):
         u = uu[r.integers(len(uu))]
         k = r.integers(3)

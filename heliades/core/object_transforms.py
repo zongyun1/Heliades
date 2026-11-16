@@ -34,7 +34,7 @@ def _axis_rotation_entries(rotation, axis, T: np.ndarray):
     """The nine Rodrigues entries shared by both vec3 makeRotationMatrix overloads."""
     u = V.normalize(V.v3(axis))                       # vec3::normalize (member, guarded)
     ux, uy, uz = u[0], u[1], u[2]
-    sx, cx = V.sinf(rotation), V.cosf(rotation)
+    sx, cx = V.sin_d(rotation), V.cos_d(rotation)  # global.cpp: float sx = sin(rotation) (double sin)
     omc = f32(f32(1.0) - cx)
     T[0] = cx + f32(ux * ux) * omc
     T[1] = f32(f32(ux * uy) * omc) - f32(uz * sx)

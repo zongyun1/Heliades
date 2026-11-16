@@ -84,9 +84,8 @@ class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
 
     @ports("Context::deletePrimitive")
     def delete_primitive(self, uuid: int):
-        del self.primitives[uuid]
-        for d in self.primitive_data.values():
-            d.pop(uuid, None)
+        """Also drops it from its parent object and deletes the object once empty (W1-B)."""
+        self.delete_primitives(uuid)
 
     @ports("Context::getAllUUIDs")
     def all_uuids(self) -> list[int]:
@@ -110,15 +109,19 @@ class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
 
     @ports("Context::translatePrimitive")
     def translate_primitive(self, uuid: int, shift):
-        self.primitives[uuid].translate(shift)
+        # members of tiles/tubes (etc.) are locked in Helios: warning + no-op
+        if not self._transform_locked(self.primitives[uuid]):
+            self.primitives[uuid].translate(shift)
 
     @ports("Context::rotatePrimitive")
     def rotate_primitive(self, uuid: int, radians: float, axis: str):
-        self.primitives[uuid].rotate(radians, axis)
+        if not self._transform_locked(self.primitives[uuid]):
+            self.primitives[uuid].rotate(radians, axis)
 
     @ports("Context::scalePrimitive")
     def scale_primitive(self, uuid: int, s):
-        self.primitives[uuid].scale(s)
+        if not self._transform_locked(self.primitives[uuid]):
+            self.primitives[uuid].scale(s)
 
     # ---- primitive data ----
     @ports("Context::setPrimitiveData")

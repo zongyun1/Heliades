@@ -1591,20 +1591,21 @@ class Phytomer:
 
     @ports("Phytomer::updatePeduncleRadii")
     def updatePeduncleRadii(self):
-        if not any(fbud.peduncle_objIDs for petiole in self.floral_buds for fbud in petiole):
-            return
-        raise NotImplementedError("Phytomer::updatePeduncleRadii (peduncle geometry) is W3-D")
+        from .inflorescence import update_peduncle_radii
+        update_peduncle_radii(self)
 
     @ports("Phytomer::updateInflorescence")
     def updateInflorescence(self, fbud):
-        """W3-D builds the peduncle and the flowers/fruit here. Until then this raises, unless the
-        PlantArchitecture opted into ``inflorescence_geometry_draws_only``: then only the random-parameter
+        """PA:3934-4197, ported in ``inflorescence.update_inflorescence`` (W3-D). If the PlantArchitecture opted into
+        ``inflorescence_geometry_draws_only``, only the random-parameter
         reads and resamples of PA:3934-4197 (and the prototype pick of createInflorescenceGeometry) are
         replayed, in their order, with no geometry. The draw stream and the vegetative state stay exact; no
         peduncle / flower / fruit objects or UUIDs exist."""
         pa = self.plantarchitecture_ptr
         if not getattr(pa, "inflorescence_geometry_draws_only", False):
-            raise NotImplementedError("Phytomer::updateInflorescence (flower/fruit geometry) is W3-D")
+            from .inflorescence import update_inflorescence
+            update_inflorescence(pa, self, fbud)
+            return
         pa.inflorescence_geometry_is_stub = True
         self._update_inflorescence_draws(fbud)
 
@@ -1667,7 +1668,8 @@ class Phytomer:
         if getattr(self.plantarchitecture_ptr, "inflorescence_geometry_draws_only", False):
             fbud.current_fruit_scale_factor = f32(inflorescence_scale_factor_fraction)   # nothing to scale
             return
-        raise NotImplementedError("Phytomer::setInflorescenceScaleFraction is W3-D")
+        from .inflorescence import set_inflorescence_scale_fraction
+        set_inflorescence_scale_fraction(self, fbud, inflorescence_scale_factor_fraction)
 
 
 __all__ = ["Phytomer", "create_petiole_floral_buds", "name_organ_materials", "get_leaf_blade_area",

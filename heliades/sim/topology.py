@@ -66,9 +66,12 @@ class TreeTopology:
             if par_node[i] >= 0 and not fixed[par_node[i]]:
                 raise ValueError(f"fixed node {i} has a free parent; clamp must be a rooted subtree")
         roots = np.flatnonzero(par_node < 0)
+        n_out = np.bincount(E[:, 0], minlength=N)
         for rt in roots:
-            if not fixed[rt]:
-                raise NotImplementedError("free-floating roots are not supported (clamp the base)")
+            # B3: an unclamped root is a free-floating base (6-DOF root body); it must have
+            # exactly one child edge so the floating base is a single rigid body
+            if not fixed[rt] and n_out[rt] != 1:
+                raise NotImplementedError("a free-floating root node must have exactly one child edge")
         static = fixed[E[:, 0]] & fixed[E[:, 1]]
 
         seg_l = np.linalg.norm(X0[E[:, 1]] - X0[E[:, 0]], axis=1)
@@ -133,6 +136,9 @@ class TreeTopology:
         Rp0 = np.where((self.parent >= 0)[:, None, None], self.R0[np.maximum(self.parent, 0)], np.eye(3))
         self.R0rel = np.einsum("nji,njk->nik", Rp0, self.R0)  # rest relative rotation
         self.o0_ground = X0[self.node_a]                    # origin for ground-jointed bodies
+        # B3: floating-base bodies (level 0, proximal node not clamped): 6-DOF joint to ground
+        self.floating = (self.parent < 0) & ~fixed[self.node_a] if nb else np.zeros(0, bool)
+        self.float_idx = np.flatnonzero(self.floating)
         # per-level segmented reduction data (children of level d grouped by parent)
         self.red = []
         for dd in range(self.nlev):
@@ -143,6 +149,18 @@ class TreeTopology:
                 continue
             starts = np.flatnonzero(np.r_[True, p[1:] != p[:-1]])
             self.red.append((p[starts], starts))
+        # B3: depth per body and ancestor table anc[b, t] = ancestor of b at depth t (b itself
+        # at t = depth[b]; -1 below). Two bodies' lowest common ancestor is at depth
+        # (number of equal leading entries) - 1 (used by the contact Delassus operator).
+        self.depth = np.zeros(nb, int)
+        for dd in range(self.nlev):
+            self.depth[self.lvl[dd]:self.lvl[dd + 1]] = dd
+        self.anc = -np.ones((nb, max(self.nlev, 1)), int)
+        for dd in range(self.nlev):
+            sl = slice(self.lvl[dd], self.lvl[dd + 1])
+            if dd:
+                self.anc[sl, :dd] = self.anc[self.parent[sl], :dd]
+            self.anc[sl, dd] = np.arange(self.lvl[dd], self.lvl[dd + 1])
         # body that "owns" each node (node is its distal end); -1 for clamped nodes
         self.node_body = -np.ones(N, int)
         self.node_body[self.node_b] = np.arange(nb)
@@ -154,8 +172,8 @@ class TreeTopology:
         has_p = self.parent >= 0
         cb = cb + np.where(has_p, 0.5 * self.l[np.maximum(self.parent, 0)] /
                            I_seg[np.maximum(self.parent, 0)], 0.0)
-        self.kgeom_bend = 1.0 / cb          # k_bend = E * kgeom_bend
-        self.kgeom_twist = 2.0 / cb         # k_twist = G * kgeom_twist   (J = 2 I)
+        self.kgeom_bend = np.where(self.floating, 0.0, 1.0 / cb)   # k_bend = E * kgeom_bend
+        self.kgeom_twist = np.where(self.floating, 0.0, 2.0 / cb)  # k_twist = G * kgeom_twist (J = 2 I)
 
         # ---- mass parts (unit densities)
         self.seg_part = MassPart.zeros(nb)

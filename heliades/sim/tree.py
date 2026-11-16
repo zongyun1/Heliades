@@ -157,8 +157,18 @@ class TreeSim:
                 cl.append(L.local)
         self.cp_body = np.concatenate(cb).astype(int)
         self.cp_local = np.concatenate(cl)
+        self.R0rel = T.R0rel[None]            # (1 or B, nb, 3, 3) rest relative rotations
         self.set_params(params_list if params_list is not None else asset.physics)
         self.reset()
+
+    def set_rest(self, R0rel=None):
+        """Replace the joint rest relative rotations (B2 inverse statics). R0rel: (nb, 3, 3)
+        shared or (B, nb, 3, 3) per batch element; None restores the asset's rest shape.
+        Body frames, payload geometry and stiffness are unchanged; only the zero of each
+        joint spring moves. Keeps Q (the deviation from rest), so call reset() as needed."""
+        R = self.topo.R0rel if R0rel is None else np.asarray(R0rel, float)
+        self.R0rel = R[None] if R.ndim == 3 else R
+        self._kin_cache = None
 
     # ------------------------------------------------------------------ params
     def set_params(self, params):
@@ -191,7 +201,7 @@ class TreeSim:
     # ------------------------------------------------------------------ kinematics
     def _kinematics(self, Q, u) -> _Kin:
         T, B = self.topo, Q.shape[0]
-        Rrel = T.R0rel[None] @ quat_to_matrix(Q)
+        Rrel = self.R0rel @ quat_to_matrix(Q)
         R = np.empty_like(Rrel)
         o = np.empty((B, T.nb, 3))
         tip = np.empty_like(o)

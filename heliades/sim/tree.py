@@ -41,6 +41,16 @@ class PointForce:
 
 
 @dataclass
+class BodyForce:
+    """B3: world-frame dead force at a point fixed on a body: `local` (3,) in the body frame,
+    relative to the body origin (proximal joint). force: (3,) or (B, 3). Used for known
+    support forces (contact-aware inverse statics) at arbitrary points of a rod capsule."""
+    body: int
+    local: np.ndarray
+    force: np.ndarray
+
+
+@dataclass
 class SphereCollider:
     """Kinematic sphere pushing on rod nodes and leaf vertices with an implicit penalty
     spring (stiffness N/m, normal damping N s/m). center: (3,) or (B, 3)."""
@@ -68,6 +78,20 @@ class SimState:
     def phi(self):
         """(B, nb, 3) joint rotation vectors from rest (diagnostic)."""
         return rotvec_from_quat(self.Q)
+
+
+@dataclass
+class _Factor:
+    """Per-step factorisation of the implicit system (kept for contact solves, B3)."""
+    UD: np.ndarray      # (B, nb, 6, 3) IA S' D^-1
+    W: np.ndarray       # (B, nb, 3, 6) S^T IA
+    Dinv: np.ndarray    # (B, nb, 3, 3)
+    Xm: np.ndarray      # (B, nb, 6, 6) modified motion map from the parent X'
+    Sm: np.ndarray      # (B, nb, 6, 3) modified joint map S'
+    R: np.ndarray       # (B, nb, 3, 3) body rotations (S = [R; 0])
+    r: np.ndarray       # (B, nb, 3) o_i - o_parent
+    o: np.ndarray       # (B, nb, 3) body origins
+    IAinv_f: np.ndarray | None   # (B, nf, 6, 6) inverse articulated inertia of floating bases
 
 
 @dataclass
@@ -141,9 +165,16 @@ class TreeSim:
 
     def __init__(self, asset: PlantAsset, params_list: PhysicsParams | Sequence[PhysicsParams] | None = None,
                  *, gravity=GRAVITY, joint_damping: float = 0.0, include_leaves: bool = True,
-                 implicit_gyro: bool = True, implicit_gravity: bool = True):
+                 implicit_gyro: bool = True, implicit_gravity: bool = True, colliders=None,
+                 contact_params=None):
         self.asset = asset
         self.topo = T = TreeTopology(asset, include_leaves=include_leaves)
+        # B3: persistent colliders (heliades.sim.contact), applied at every step in addition
+        # to the ones passed in `external`; contact_params: contact.ContactParams
+        self.colliders = list(colliders or [])
+        self.contact_params = contact_params
+        self.contact = None                   # last step's contact.ContactResult (B3)
+        self._contact_cache = None
         self.gravity = np.asarray(gravity, float)
         self.joint_damping = float(joint_damping)
         self.implicit_gyro = bool(implicit_gyro)
@@ -188,19 +219,30 @@ class TreeSim:
         self.Io = rho[..., None, None] * sp.Io + rhol[..., None, None] * lp.Io + pp.Io
         self.alpha = col("damping")[:, 0]                   # mass-proportional damping [1/s]
 
-    def reset(self, Q=None, u=None):
+    def reset(self, Q=None, u=None, p_float=None, v_float=None):
+        """Q, u: joint state (default rest, at rest). p_float, v_float (B, nf, 3): origin
+        position / linear velocity of floating-base bodies (default asset position, 0)."""
         T = self.topo
         if Q is None:
             Q = np.zeros((self.B, T.nb, 4))
             Q[..., 0] = 1.0
         self.Q = np.array(Q, float)
         self.u = np.zeros((self.B, T.nb, 3)) if u is None else np.array(u, float)
+        nf = len(T.float_idx)
+        self.p_float = np.broadcast_to(T.o0_ground[T.float_idx], (self.B, nf, 3)).copy() \
+            if p_float is None else np.broadcast_to(np.asarray(p_float, float), (self.B, nf, 3)).copy()
+        self.v_float = np.zeros((self.B, nf, 3)) if v_float is None else \
+            np.broadcast_to(np.asarray(v_float, float), (self.B, nf, 3)).copy()
         self.t = 0.0
         self._kin_cache = None
+        self._contact_cache = None
 
     # ------------------------------------------------------------------ kinematics
-    def _kinematics(self, Q, u) -> _Kin:
+    def _kinematics(self, Q, u, p_float=None, v_float=None) -> _Kin:
         T, B = self.topo, Q.shape[0]
+        fl = T.float_idx
+        p_float = getattr(self, "p_float", None) if p_float is None else p_float
+        v_float = getattr(self, "v_float", None) if v_float is None else v_float
         Rrel = self.R0rel @ quat_to_matrix(Q)
         R = np.empty_like(Rrel)
         o = np.empty((B, T.nb, 3))
@@ -216,6 +258,9 @@ class TreeSim:
                 o[:, sl] = T.o0_ground[sl]
                 w[:, sl] = _mv(R[:, sl], u[:, sl])
                 vO[:, sl] = 0.0
+                if len(fl):
+                    o[:, fl] = p_float
+                    vO[:, fl] = v_float
             else:
                 p = T.parent[sl]
                 R[:, sl] = R[:, p] @ Rrel[:, sl]
@@ -245,6 +290,9 @@ class TreeSim:
         x[:, T.node_b] = k.tip
         v = np.zeros_like(x)
         v[:, T.node_b] = k.vO + _cross(k.w, k.tip - k.o)
+        if len(T.float_idx):
+            x[:, T.node_a[T.float_idx]] = k.o[:, T.float_idx]
+            v[:, T.node_a[T.float_idx]] = k.vO[:, T.float_idx]
         return SimState(self.t, self.Q.copy(), self.u.copy(), x, k.R.copy(), v)
 
     def leaf_vertices(self) -> list[np.ndarray]:
@@ -308,6 +356,12 @@ class TreeSim:
                 rr = k.tip[:, bdy] - k.o[:, bdy]
                 fext[:, bdy, :3] += _cross(rr, f)
                 fext[:, bdy, 3:] += f
+            elif isinstance(e, BodyForce):
+                bdy = int(e.body)
+                f = np.broadcast_to(np.asarray(e.force, float), (B, 3))
+                rr = _mv(k.R[:, bdy], np.asarray(e.local, float))
+                fext[:, bdy, :3] += _cross(rr, f)
+                fext[:, bdy, 3:] += f
             elif isinstance(e, SphereCollider):
                 ctr = np.broadcast_to(np.asarray(e.center, float), (B, 3))
                 vs = np.zeros((B, 3)) if e.velocity is None else np.broadcast_to(e.velocity, (B, 3))
@@ -338,6 +392,7 @@ class TreeSim:
         """Advance all B parameter sets by one implicit step of size h."""
         T, B = self.topo, self.B
         k = self._kin()
+        external, implicit, penalty = self._split_external(external)
         alpha = self.alpha if damping is None else np.broadcast_to(np.asarray(damping, float), (B,))
         beta = self.joint_damping
         Ib = self._spatial_inertia(k)
@@ -365,6 +420,9 @@ class TreeSim:
             Ieff[..., :3, :3] += h * h * Kg
             fext[..., :3] -= h * _mv(Kg, k.w)
         self._external(k, external, h, Ieff, fext)
+        if penalty:
+            from .contact import apply_penalty
+            apply_penalty(self, k, penalty, h, Ieff, fext)
 
         # joint springs (implicit): tau = -2 Gamma K v - (h+beta) K~ u, armature A
         Q = self.Q * np.where(self.Q[..., :1] < 0, -1.0, 1.0)
@@ -400,6 +458,7 @@ class TreeSim:
         U = np.empty((B, T.nb, 6, 3))           # IA Sm
         W = np.empty((B, T.nb, 3, 6))           # S^T IA
         Dinv = np.empty((B, T.nb, 3, 3))
+        UDall = np.zeros((B, T.nb, 6, 3))       # U D^-1 (kept for contact responses, B3)
         uu = np.empty((B, T.nb, 3))
         for d in range(T.nlev - 1, -1, -1):
             sl = slice(T.lvl[d], T.lvl[d + 1])
@@ -413,6 +472,7 @@ class TreeSim:
             if d == 0:
                 break
             UD = Ul @ Di
+            UDall[:, sl] = UD
             Ia = IA[:, sl] - UD @ Wl
             pa = pA[:, sl] + _mv(Ia, k.c[:, sl]) + _mv(UD, ul)
             rr = k.r[:, sl]
@@ -423,6 +483,11 @@ class TreeSim:
             par, starts = T.red[d]
             IA[:, par] += np.add.reduceat(XtIaX, starts, axis=1)
             pA[:, par] += np.add.reduceat(Xtpa, starts, axis=1)
+
+        # ---- floating bases (B3): 6-DOF root joint, IA a = -pA at the root
+        fl = T.float_idx
+        IAinv_f = np.linalg.inv(IA[:, fl]) if len(fl) else None
+        pA_f = pA[:, fl] if len(fl) else None
 
         # ---- root -> leaf: accelerations
         acc = np.empty((B, T.nb, 6))
@@ -436,13 +501,88 @@ class TreeSim:
             ud = _mv(Dinv[:, sl], uu[:, sl] - _mv(W[:, sl], ap))
             udot[:, sl] = ud
             acc[:, sl] = ap + _mv(Sm[:, sl], ud)
+            if d == 0 and len(fl):
+                af = -_mv(IAinv_f, pA_f)
+                acc[:, fl] = af
+                udot[:, fl] = _mtv(Rb_all[:, fl], af[..., :3])      # omega_dot = R u_dot
+
+        self._factor = _Factor(UDall, W, Dinv, Xm, Sm, Rb_all, k.r, k.o, IAinv_f)
+        if implicit:
+            from .contact import solve_contacts
+            d_udot, d_acc = solve_contacts(self, k, self._factor, h, udot, acc, implicit)
+            udot = udot + d_udot
+            acc = acc + d_acc
+        else:
+            self.contact = None
 
         self.u = self.u + h * udot
+        if len(fl):
+            self.v_float = self.v_float + h * acc[:, fl, 3:]
+            self.p_float = self.p_float + h * self.v_float
         Qn = qmul(self.Q, quat_from_rotvec(h * self.u))
         self.Q = Qn / np.linalg.norm(Qn, axis=-1, keepdims=True)
         self.t += h
         self._kin_cache = None
         return udot
+
+    # ------------------------------------------------------------------ B3 helpers
+    def _split_external(self, external):
+        """-> (B1 actions [PointForce, SphereCollider], implicit colliders, penalty colliders).
+        Colliders are heliades.sim.contact objects (attribute `contact_mode`); the
+        persistent `self.colliders` are always included."""
+        T = self.topo
+        if isinstance(external, np.ndarray):
+            external = [PointForce(n, external[..., n, :]) for n in range(T.N)
+                        if np.any(external[..., n, :] != 0)]
+        acts, imp, pen = [], [], []
+        for e in list(external or []) + self.colliders:
+            mode = getattr(e, "contact_mode", None)
+            if mode is None:
+                acts.append(e)
+            elif mode == "implicit":
+                imp.append(e)
+            elif mode == "penalty":
+                pen.append(e)
+            else:
+                raise ValueError(f"unknown contact_mode {mode!r}")
+        return acts, imp, pen
+
+    def response(self, pA_extra, fac=None):
+        """Linear response of the last step's factorised system to extra body *bias*
+        pA_extra (B, nb, 6) (= minus a spatial force [moment about o_b; force], world).
+        Returns (udot (B, nb, 3), acc (B, nb, 6)): the change of the joint accelerations
+        and of the (modified) body accelerations. Velocity-product terms excluded; O(n)."""
+        T, B = self.topo, self.B
+        f = self._factor if fac is None else fac
+        pA = np.array(pA_extra, float)
+        ul = np.empty((B, T.nb, 3))
+        for d in range(T.nlev - 1, -1, -1):
+            sl = slice(T.lvl[d], T.lvl[d + 1])
+            ul[:, sl] = -_mtv(f.R[:, sl], pA[:, sl, :3])
+            if d == 0:
+                break
+            pa = pA[:, sl] + _mv(f.UD[:, sl], ul[:, sl])
+            pa[..., :3] += _cross(f.r[:, sl], pa[..., 3:])
+            par, starts = T.red[d]
+            pA[:, par] += np.add.reduceat(pa, starts, axis=1)
+        fl = T.float_idx
+        acc = np.empty((B, T.nb, 6))
+        udot = np.empty((B, T.nb, 3))
+        for d in range(T.nlev):
+            sl = slice(T.lvl[d], T.lvl[d + 1])
+            if d == 0:
+                ud = _mv(f.Dinv[:, sl], ul[:, sl])
+                acc[:, sl] = _mv(f.Sm[:, sl], ud)
+            else:
+                ap = _mv(f.Xm[:, sl], acc[:, T.parent[sl]])
+                ud = _mv(f.Dinv[:, sl], ul[:, sl] - _mv(f.W[:, sl], ap))
+                acc[:, sl] = ap + _mv(f.Sm[:, sl], ud)
+            udot[:, sl] = ud
+            if d == 0 and len(fl):
+                af = -_mv(f.IAinv_f, pA[:, fl])
+                acc[:, fl] = af
+                udot[:, fl] = _mtv(f.R[:, fl], af[..., :3])
+        return udot, acc
 
     def run(self, duration: float, h: float, external=None, damping=None, record=None, every=1):
         """Step for `duration`; returns array of recorded node positions (F, B, N, 3) or

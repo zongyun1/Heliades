@@ -86,7 +86,9 @@ class ObjectsMixin:
                 uuids.append(self.add_triangle(ring[i][j], ring[i + 1][j + 1], ring[i][j + 1], colors[i]))
                 uuids.append(self.add_triangle(ring[i][j], ring[i + 1][j], ring[i + 1][j + 1], colors[i]))
         oid = self._register_object(OBJECT_TUBE, uuids, transform=np.eye(4, dtype=f32).reshape(16),
-                                    extra={"nodes": np.array(nodes), "radius": np.array(radius), "subdiv": nr})
+                                    extra={"nodes": np.array(nodes), "radius": np.array(radius), "subdiv": nr,
+                                           "triangle_vertices": _ring_array(ring),
+                                           "colors": np.array([np.asarray(c, f32)[:3] for c in colors], f32).reshape(-1, 3)})
         self.objects[oid].origin = self.object_center(oid)
         return oid
 
@@ -185,7 +187,8 @@ class ObjectsMixin:
                         self.delete_primitive(u)
         oid = self._register_object(OBJECT_TUBE, uuids, transform=np.eye(4, dtype=f32).reshape(16),
                                     extra={"nodes": np.array(nodes), "radius": np.array(radius), "subdiv": nr,
-                                           "texture_file": texture_file, "textureuv_ufrac": np.array(ufrac, f32)})
+                                           "texture_file": texture_file, "textureuv_ufrac": np.array(ufrac, f32),
+                                           "triangle_vertices": _ring_array(ring), "colors": np.zeros((n, 3), f32)})
         self.objects[oid].origin = self.object_center(oid)
         return oid
 
@@ -209,8 +212,37 @@ class ObjectsMixin:
         return oid
 
     @ports("Context::getAllObjectIDs")
-    def all_object_ids(self) -> list[int]:
-        return sorted(self.objects)
+    def all_object_ids(self, include_hidden: bool = False) -> list[int]:
+        """Sorted object IDs. Hidden objects are skipped, as Helios does (include_hidden is a Heliades
+        extension for snapshots of prototype geometry)."""
+        hid = getattr(self, "hidden_objects", ())
+        return sorted(o for o in self.objects if include_hidden or o not in hid)
+
+    @ports("Context::getObjectCount")
+    def object_count(self) -> int:
+        """All objects, hidden ones included (objects.size())."""
+        return len(self.objects)
+
+    @ports("Context::doesObjectExist")
+    def does_object_exist(self, oid: int) -> bool:
+        return int(oid) in self.objects
+
+    @ports("Context::getObjectArea", "CompoundObject::getArea")
+    def object_area(self, oid: int) -> np.float32:
+        """Sum of the member primitives' areas (hidden ones too) accumulated in double, then float."""
+        obj = self.objects.get(int(oid))
+        if obj is None:
+            raise ValueError(f"ERROR (Context::getObjectPointer): Object ID of {oid} does not exist in the Context.")
+        area = 0.0
+        for u in obj.uuids:
+            p = self.primitives.get(u)
+            if p is not None:
+                area += float(p.area())
+        return f32(area)
+
+    @ports("Context::getObjectPrimitiveCount")
+    def object_primitive_count(self, oid: int) -> int:
+        return len(self.objects[int(oid)].uuids)
 
     @ports("Context::getObjectType")
     def object_type(self, oid: int) -> int:
@@ -239,17 +271,22 @@ class ObjectsMixin:
         return f32(0.5) * (lo + hi)
 
 
-def _tube_rings(nr: int, nodes, radius):
-    """Vertex rings of addTubeObject (shared by the colored and textured overloads, which are
-    identical up to the triangles). ``ring[i][j]`` for node i and radial index j in 0..nr."""
-    n = len(nodes)
-    rc = [f32(1e-5) if (r < f32(1e-5) and r >= 0) else r for r in radius]
+def _tube_factors(nr: int):
+    """cfact/sfact: cosf/sinf(2.f * PI_F * float(j) / float(nr)) for j in 0..nr."""
     cf = [V.cosf(f32(f32(f32(2.0) * V.PI_F) * f32(j)) / f32(nr)) for j in range(nr + 1)]
     sf = [V.sinf(f32(f32(f32(2.0) * V.PI_F) * f32(j)) / f32(nr)) for j in range(nr + 1)]
+    return cf, sf
+
+
+def _tube_frames(nodes, radius=None):
+    """(radial, orthogonal) unit vectors per node: the parallel-transport frame shared verbatim by
+    addTubeObject, Tube::appendTubeSegment and Tube::recomputeCrossSections. ``radius`` (if given) is
+    checked for negative entries node by node, as the first two do inside the loop."""
+    n = len(nodes)
     X, Y, Z = V.v3(1, 0, 0), V.v3(0, 1, 0), V.v3(0, 0, 1)
     initial_radial = X.copy()
     prev_axial = prev_radial = None
-    ring = [[None] * (nr + 1) for _ in range(n)]
+    frames = []
 
     def fallback(axial):
         fr = X.copy()
@@ -260,7 +297,7 @@ def _tube_rings(nr: int, nodes, radius):
         return V.normalize(V.cross(axial, fr))
 
     for i in range(n):
-        if radius[i] < 0:
+        if radius is not None and radius[i] < 0:
             raise ValueError("addTubeObject: radius must be positive")
         if i == 0:
             axial = nodes[i + 1] - nodes[i]  # n == 1 raises IndexError, as Helios reads past the end
@@ -286,11 +323,32 @@ def _tube_rings(nr: int, nodes, radius):
                 prev_radial = fallback(axial)
         prev_axial = axial
         radial = prev_radial
-        ortho = V.normalize(V.cross(radial, axial))
+        frames.append((radial, V.normalize(V.cross(radial, axial))))
+    return frames
+
+
+def _clamp_radius(radius):
+    """radius_clamped: r < 1e-5f and r >= 0 -> 1e-5f."""
+    return [f32(1e-5) if (r < f32(1e-5) and r >= 0) else f32(r) for r in radius]
+
+
+def _tube_rings(nr: int, nodes, radius):
+    """Vertex rings of addTubeObject (shared by the colored and textured overloads, which are
+    identical up to the triangles). ``ring[i][j]`` for node i and radial index j in 0..nr."""
+    rc = _clamp_radius(radius)
+    cf, sf = _tube_factors(nr)
+    frames = _tube_frames(nodes, radius)
+    ring = [[None] * (nr + 1) for _ in range(len(nodes))]
+    for i, (radial, ortho) in enumerate(frames):
         for j in range(nr + 1):
             normal = (f32(cf[j] * rc[i]) * radial) + (f32(sf[j] * rc[i]) * ortho)
             ring[i][j] = nodes[i] + normal
     return ring
+
+
+def _ring_array(ring) -> np.ndarray:
+    """Tube::triangle_vertices as a float32 (nodes, nr+1, 3) array (local frame)."""
+    return np.array([[np.asarray(v, f32) for v in r] for r in ring], f32).reshape(len(ring), -1, 3)
 
 
 def _correct_texture_repeat(subdiv, texture_repeat):
@@ -301,3 +359,291 @@ def _correct_texture_repeat(subdiv, texture_repeat):
     while subdiv[1] % ry != 0:
         ry -= 1
     return rx, ry
+
+
+# ---- tube editing (Context_object.cpp, Tube class) ------------------------------------------
+
+_IDENTITY16 = np.eye(4, dtype=f32).reshape(16)
+
+
+def _vecmult(M, v) -> np.ndarray:
+    """helios::vecmult(M, vec3): V[i] = 0.f, then V[i] += M[4i+k] * v[k] for k = 0..3 (v[3] = 1)."""
+    x = (f32(v[0]), f32(v[1]), f32(v[2]), f32(1.0))
+    out = np.empty(3, f32)
+    for i in range(3):
+        acc = f32(0.0)
+        for k in range(4):
+            acc = f32(acc + f32(M[4 * i + k] * x[k]))
+        out[i] = acc
+    return out
+
+
+class TubeEditMixin:
+    """Tube object setters and getters. Tube data (nodes, radii, colors and the ring vertices
+    ``triangle_vertices``) is stored in the object's local frame, as in Helios; every setter first
+    bakes a non-identity object transform into it (``Tube::bakeTransform``)."""
+
+    def _tube(self, oid: int, who: str):
+        obj = self.objects.get(int(oid))
+        if obj is None or obj.type != OBJECT_TUBE:
+            raise ValueError(f"ERROR (Context::{who}): ObjectID {oid} is not a tube object or does not exist.")
+        return obj
+
+    @ports("Tube::bakeTransform")
+    def _bake_tube_transform(self, obj):
+        T = obj.transform
+        if np.array_equal(T, _IDENTITY16):            # std::equal on floats (-0 == 0)
+            return
+        nodes_world = self.tube_object_nodes(obj.oid)
+        radius_world = self.tube_object_node_radii(obj.oid)
+        tv = obj.extra["triangle_vertices"]
+        obj.extra["triangle_vertices"] = np.array([[_vecmult(T, v) for v in ring] for ring in tv], f32).reshape(tv.shape)
+        obj.extra["nodes"] = np.asarray(nodes_world, f32).reshape(-1, 3)
+        obj.extra["radius"] = np.asarray(radius_world, f32).reshape(-1)
+        obj.transform = _IDENTITY16.copy()
+
+    @ports("Tube::updateTriangleVertices")
+    def _update_tube_triangles(self, obj):
+        """Rebuild every member triangle from the rings, by position in the UUID list (radial slot
+        slowest, segment fastest): Context::setTriangleVertices -> Triangle::makeTransformationMatrix."""
+        from .primitives import TRIANGLE, triangle_transform
+        tv, nr, n = obj.extra["triangle_vertices"], int(obj.extra["subdiv"]), len(obj.extra["nodes"])
+        uu = obj.uuids
+
+        def put(k, v0, v1, v2):
+            if k >= len(uu):        # UUIDs.at(k): a textured tube that dropped zero-area triangles ends here
+                raise IndexError(f"ERROR (Tube::updateTriangleVertices): vector::_M_range_check: __n (which is {k}) "
+                                 f">= this->size() (which is {len(uu)})")
+            p = self.primitives.get(uu[k])
+            if p is None or p.type != TRIANGLE:
+                raise ValueError(f"ERROR (Context::setTriangleVertices): UUID {uu[k]} is not a triangle in the Context.")
+            p.transform = triangle_transform(v0, v1, v2)
+
+        ii = 0
+        for j in range(nr):
+            for i in range(n - 1):       # one triangle at a time, so a failure leaves the same partial update
+                put(ii, tv[i][j], tv[i + 1][j + 1], tv[i][j + 1])
+                put(ii + 1, tv[i][j], tv[i + 1][j], tv[i + 1][j + 1])
+                ii += 2
+
+    def _append_rings(self, obj, node, radius, color):
+        """Shared first half of both appendTubeSegment overloads: bake, push the node, recompute the
+        frames and the last two rings (with the stored, unclamped radii)."""
+        r = f32(radius)
+        if r < 0:
+            raise ValueError("ERROR (Tube::appendTubeSegment): Node radius must be positive.")
+        r = r if f32(1e-5) < r else f32(1e-5)         # std::max((float) 1e-5, node_radius)
+        self._bake_tube_transform(obj)
+        nr = int(obj.extra["subdiv"])
+        cf, sf = _tube_factors(nr)
+        tv = [list(ring) for ring in obj.extra["triangle_vertices"]] + [[np.zeros(3, f32) for _ in range(nr + 1)]]
+        nodes = [V.v3(x) for x in obj.extra["nodes"]] + [V.v3(node)]
+        rad = [f32(x) for x in obj.extra["radius"]] + [r]
+        obj.extra["colors"] = np.vstack([obj.extra["colors"].reshape(-1, 3), np.asarray(color, f32)[:3]]).astype(f32)
+        n = len(nodes)
+        try:
+            frames = _tube_frames(nodes, rad)
+        except ValueError:
+            raise ValueError("ERROR (Context::addTubeObject): Radius of tube must be positive.") from None
+        for i in range(max(n - 2, 0), n):
+            radial, ortho = frames[i]
+            for j in range(nr + 1):
+                normal = (f32(cf[j] * rad[i]) * radial) + (f32(sf[j] * rad[i]) * ortho)
+                tv[i][j] = nodes[i] + normal
+        obj.extra["triangle_vertices"] = np.array(tv, f32).reshape(n, nr + 1, 3)
+        obj.extra["nodes"] = np.array(nodes, f32).reshape(-1, 3)
+        obj.extra["radius"] = np.array(rad, f32)
+        return n, nr
+
+    def _append_reorder(self, obj, n, nr, make_pair):
+        """UUIDs stay ordered radial slot slowest, segment fastest: the new segment's two triangles are
+        inserted at the end of each radial slot's block."""
+        earlier = list(obj.uuids)
+        out, k = [], 0
+        for j in range(nr):
+            for _ in range(n - 2):
+                out += [earlier[k], earlier[k + 1]]
+                k += 2
+            out += make_pair(j)
+        obj.uuids = out
+        for u in out:
+            self.primitives[u].parent_object = obj.oid
+        return earlier
+
+    @ports("Context::appendTubeSegment(uint,const vec3&,float,const RGBcolor&)",
+           "Tube::appendTubeSegment(const vec3&,float,const RGBcolor&)")
+    def append_tube_segment(self, oid: int, node_position, node_radius, node_color):
+        obj = self._tube(oid, "appendTubeSegment")
+        n, nr = self._append_rings(obj, node_position, node_radius, node_color)
+        tv = obj.extra["triangle_vertices"]
+        col = tuple(np.asarray(node_color, f32)[:3])
+
+        def pair(j):
+            return [self.add_triangle(tv[n - 2][j], tv[n - 1][j + 1], tv[n - 2][j + 1], col),
+                    self.add_triangle(tv[n - 2][j], tv[n - 1][j], tv[n - 1][j + 1], col)]
+
+        earlier = self._append_reorder(obj, n, nr, pair)
+        self._keep_named_tube_material(earlier, obj.uuids, "", col)
+        self._update_tube_triangles(obj)
+
+    @ports("Context::appendTubeSegment(uint,const vec3&,float,const char*,const vec2&)",
+           "Tube::appendTubeSegment(const vec3&,float,const char*,const vec2&)")
+    def append_tube_segment_textured(self, oid: int, node_position, node_radius, texture_file: str, textureuv_ufrac):
+        obj = self._tube(oid, "appendTubeSegment")
+        uf = (f32(textureuv_ufrac[0]), f32(textureuv_ufrac[1]))
+        if f32(node_radius) < 0:
+            raise ValueError("ERROR (Tube::appendTubeSegment): Node radius must be positive.")
+        if uf[0] < 0 or uf[1] < 0 or uf[0] > 1 or uf[1] > 1:
+            raise ValueError("ERROR (Tube::appendTubeSegment): Texture U fraction must be between 0 and 1.")
+        n, nr = self._append_rings(obj, node_position, node_radius, (0.0, 0.0, 0.0))
+        tv = obj.extra["triangle_vertices"]
+        vv = [f32(j) / f32(nr) for j in range(nr + 1)]
+
+        def pair(j):
+            a, b = n - 2, n - 1
+            return [self.add_triangle_textured(tv[a][j], tv[b][j + 1], tv[a][j + 1], texture_file,
+                                               (uf[0], vv[j]), (uf[1], vv[j + 1]), (uf[0], vv[j + 1])),
+                    self.add_triangle_textured(tv[a][j], tv[b][j], tv[b][j + 1], texture_file,
+                                               (uf[0], vv[j]), (uf[1], vv[j]), (uf[1], vv[j + 1]))]
+
+        earlier = self._append_reorder(obj, n, nr, pair)
+        self._keep_named_tube_material(earlier, obj.uuids, texture_file, (0.0, 0.0, 0.0))
+        self._update_tube_triangles(obj)
+
+    @ports("Context::setTubeRadii", "Tube::setTubeRadii")
+    def set_tube_radii(self, oid: int, node_radii):
+        """Path dependent: each ring vertex is moved along its *current* offset from the node, so a
+        radius-only update keeps whatever cross-section shape earlier updates left."""
+        obj = self._tube(oid, "setTubeRadii")
+        radii = [f32(r) for r in node_radii]
+        if len(radii) != len(obj.extra["nodes"]):
+            raise ValueError("ERROR (Tube::setTubeRadii): Number of radii in input vector must match number of tube nodes.")
+        self._bake_tube_transform(obj)
+        nodes = obj.extra["nodes"]
+        tv = obj.extra["triangle_vertices"].copy()
+        for seg in range(len(tv)):
+            for k in range(tv.shape[1]):
+                axis = V.normalize(tv[seg][k] - nodes[seg])
+                tv[seg][k] = nodes[seg] + axis * radii[seg]
+        obj.extra["triangle_vertices"] = tv
+        obj.extra["radius"] = np.array(radii, f32)
+        self._update_tube_triangles(obj)
+
+    @ports("Context::setTubeNodes", "Tube::setTubeNodes", "Tube::recomputeCrossSections")
+    def set_tube_nodes(self, oid: int, node_xyz):
+        obj = self._tube(oid, "setTubeNodes")
+        nodes = [V.v3(p) for p in node_xyz]
+        if len(nodes) != len(obj.extra["nodes"]):
+            raise ValueError("ERROR (Tube::setTubeNodes): Number of nodes in input vector must match number of tube nodes.")
+        self._bake_tube_transform(obj)
+        nr = int(obj.extra["subdiv"])
+        rc = _clamp_radius(obj.extra["radius"])
+        cf, sf = _tube_factors(nr)
+        tv = np.zeros((len(nodes), nr + 1, 3), f32)
+        for i, (radial, ortho) in enumerate(_tube_frames(nodes)):
+            for j in range(nr + 1):     # nodes[i] + cfact*r*radial + sfact*r*orthogonal, left to right
+                tv[i][j] = (nodes[i] + f32(cf[j] * rc[i]) * radial) + f32(sf[j] * rc[i]) * ortho
+        obj.extra["nodes"] = np.array(nodes, f32).reshape(-1, 3)
+        obj.extra["triangle_vertices"] = tv
+        self._update_tube_triangles(obj)
+
+    @ports("Context::scaleTubeGirth", "Tube::scaleTubeGirth")
+    def scale_tube_girth(self, oid: int, S):
+        obj = self._tube(oid, "scaleTubeGirth")
+        S = f32(S)
+        self._bake_tube_transform(obj)
+        nodes, tv = obj.extra["nodes"], obj.extra["triangle_vertices"].copy()
+        rad = obj.extra["radius"].copy()
+        with np.errstate(invalid="ignore"):          # a ring collapsed onto its node gives 0 * inf = NaN, as in C++
+            for seg in range(len(tv)):
+                for k in range(tv.shape[1]):
+                    axis = tv[seg][k] - nodes[seg]
+                    cur = V.magnitude(axis)
+                    axis = V.div(axis, cur)
+                    tv[seg][k] = nodes[seg] + (axis * cur) * S
+                rad[seg] = f32(rad[seg] * S)
+        obj.extra["triangle_vertices"], obj.extra["radius"] = tv, rad
+        self._update_tube_triangles(obj)
+
+    @ports("Context::scaleTubeLength", "Tube::scaleTubeLength")
+    def scale_tube_length(self, oid: int, S):
+        obj = self._tube(oid, "scaleTubeLength")
+        S = f32(S)
+        self._bake_tube_transform(obj)
+        nodes, tv = obj.extra["nodes"].copy(), obj.extra["triangle_vertices"].copy()
+        with np.errstate(invalid="ignore"):          # coincident nodes give NaN, as in C++
+            for seg in range(len(tv) - 1):
+                axis = nodes[seg + 1] - nodes[seg]
+                L = V.magnitude(axis)
+                axis = V.div(axis, L)
+                dL = (axis * L) * f32(f32(1) - S)
+                for d in range(seg + 1, len(tv)):
+                    nodes[d] = nodes[d] - dL
+                    tv[d] = tv[d] - dL
+        obj.extra["nodes"], obj.extra["triangle_vertices"] = nodes, tv
+        self._update_tube_triangles(obj)
+
+    @ports("Context::getTubeObjectSubdivisionCount")
+    def tube_object_subdivision_count(self, oid: int) -> int:
+        return int(self._tube(oid, "getTubeObjectSubdivisionCount").extra["subdiv"])
+
+    @ports("Context::getTubeObjectNodeCount")
+    def tube_object_node_count(self, oid: int) -> int:
+        return len(self._tube(oid, "getTubeObjectNodeCount").extra["nodes"])
+
+    @ports("Context::getTubeObjectNodeColors")
+    def tube_object_node_colors(self, oid: int) -> np.ndarray:
+        return self._tube(oid, "getTubeObjectNodeColors").extra["colors"].copy()
+
+    @ports("Tube::getTriangleVertices")
+    def tube_object_triangle_vertices(self, oid: int) -> np.ndarray:
+        """Local-frame ring vertices (no object transform applied), as Helios returns them."""
+        return self._tube(oid, "getTubeObjectTriangleVertices").extra["triangle_vertices"].copy()
+
+    @staticmethod
+    def _frustum_volume(L, r0, r1) -> np.float32:
+        """PI_F * segment_length / 3.f * (r0 * r0 + r0 * r1 + r1 * r1), left to right in float."""
+        return f32(f32(f32(V.PI_F * L) / f32(3.0)) * f32(f32(f32(r0 * r0) + f32(r0 * r1)) + f32(r1 * r1)))
+
+    @ports("Context::getTubeObjectVolume", "Tube::getVolume")
+    def tube_object_volume(self, oid: int) -> np.float32:
+        """World radii (getNodeRadii) but local-frame segment lengths, as Helios computes it."""
+        obj = self._tube(oid, "getTubeObjectVolume")
+        radii, nodes = self.tube_object_node_radii(oid), obj.extra["nodes"]
+        vol = f32(0)
+        for i in range(len(radii) - 1):
+            vol = f32(vol + self._frustum_volume(V.magnitude(nodes[i + 1] - nodes[i]), f32(radii[i]), f32(radii[i + 1])))
+        return vol
+
+    @ports("Context::getTubeObjectSegmentVolume", "Tube::getSegmentVolume")
+    def tube_object_segment_volume(self, oid: int, segment_index: int) -> np.float32:
+        """Local-frame nodes and radii (no object transform), as Helios computes it."""
+        obj = self._tube(oid, "getTubeObjectSegmentVolume")
+        nodes, rad = obj.extra["nodes"], obj.extra["radius"]
+        k = int(segment_index)
+        if k >= len(nodes) - 1:
+            raise ValueError("ERROR (Tube::getSegmentVolume): Segment index out of bounds.")
+        return self._frustum_volume(V.magnitude(nodes[k + 1] - nodes[k]), f32(rad[k]), f32(rad[k + 1]))
+
+    @ports("Context::pruneTubeNodes", "Tube::pruneTubeNodes")
+    def prune_tube_nodes(self, oid: int, node_index: int):
+        obj = self._tube(oid, "pruneTubeNodes")
+        n = len(obj.extra["nodes"])
+        k = int(node_index)
+        if k >= n:
+            raise ValueError(f"ERROR (Tube::pruneTubeNodes): Node index of {k} is out of bounds.")
+        if k <= 1:
+            self.delete_object(oid)
+            return
+        nseg, keep = n - 1, k - 1
+        kept, gone, ii = [], [], 0
+        for _ in range(int(obj.extra["subdiv"])):
+            for i in range(nseg):
+                (kept if i < keep else gone).extend(obj.uuids[ii:ii + 2])
+                ii += 2
+        for key in ("nodes", "triangle_vertices", "radius", "colors"):
+            obj.extra[key] = obj.extra[key][:k].copy()
+        obj.uuids = kept
+        for u in gone:
+            self.primitives[u].parent_object = 0   # no longer a member: deleting it must not touch the object
+            self.delete_primitives(u)

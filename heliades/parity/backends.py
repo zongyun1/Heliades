@@ -65,8 +65,8 @@ class ForgeBackend(_OpsDispatch):
     def add_polymesh(self, uuids):
         return self.scene.add_polymesh_object(uuids)
 
-    def snapshot(self) -> Snapshot:
-        return self.scene.snapshot()
+    def snapshot(self, include_hidden: bool = False) -> Snapshot:
+        return self.scene.snapshot(include_hidden)
 
 
 class HeliosBackend(_OpsDispatch):
@@ -128,29 +128,49 @@ class HeliosBackend(_OpsDispatch):
     def add_polymesh(self, uuids):
         return self.ctx.addPolymeshObject([int(u) for u in uuids])
 
-    def snapshot(self) -> Snapshot:
-        return helios_snapshot(self.ctx)
+    def snapshot(self, include_hidden: bool = False) -> Snapshot:
+        return helios_snapshot(self.ctx, include_hidden)
 
 
-def helios_snapshot(ctx) -> Snapshot:
-    """Dense dump of a PyHelios Context via its bulk API, sorted by UUID."""
-    uu = np.array(ctx.getAllUUIDs(), np.int64)
-    flat, off = ctx.getAllPrimitiveVertices()
-    flat = np.asarray(flat, np.float32).reshape(-1, 3)
-    off = np.asarray(off, np.int64) // 3
+def _all_ids_including_hidden(count, exists, start):
+    """getAllUUIDs/getAllObjectIDs skip hidden entries, so enumerate by probing IDs upward until
+    ``count`` (which includes hidden ones) existing IDs are found."""
+    out, i = [], start
+    while len(out) < count:
+        if exists(i):
+            out.append(i)
+        i += 1
+    return out
+
+
+def helios_snapshot(ctx, include_hidden: bool = False) -> Snapshot:
+    """Dense dump of a PyHelios Context, sorted by UUID. By default it covers what the bulk getters
+    see (getAllUUIDs, which skips hidden primitives); with include_hidden every primitive and object,
+    with its hidden flag."""
+    if include_hidden:
+        uu = np.array(_all_ids_including_hidden(ctx.getPrimitiveCount(), ctx.doesPrimitiveExist, 0), np.int64)
+    else:
+        uu = np.sort(np.array(ctx.getAllUUIDs(), np.int64))
     n = len(uu)
+    ul = [int(u) for u in uu]
     V, nv = np.zeros((n, 4, 3), np.float32), np.zeros(n, np.int32)
-    ends = np.r_[off[1:], len(flat)]
-    for i in range(n):
-        v = flat[off[i]:ends[i]]
-        V[i, : len(v)], nv[i] = v, len(v)
-    T = np.asarray(ctx.getAllPrimitiveTypes(), np.int32)
-    A = np.asarray(ctx.getAllPrimitiveAreas(), np.float32)
-    N = np.asarray(ctx.getAllPrimitiveNormals(), np.float32).reshape(n, 3)
-    C = np.asarray(ctx.getAllPrimitiveColors(), np.float32).reshape(n, -1)
+    if n:
+        flat, off = ctx.getPrimitiveVertices(ul)
+        flat = np.asarray(flat, np.float32).reshape(-1, 3)
+        off = np.asarray(off, np.int64) // 3
+        ends = np.r_[off[1:], len(flat)]
+        for i in range(n):
+            v = flat[off[i]:ends[i]]
+            V[i, : len(v)], nv[i] = v, len(v)
+        T = np.asarray(ctx.getPrimitiveType(ul), np.int32).reshape(n)
+        A = np.asarray(ctx.getPrimitiveArea(ul), np.float32).reshape(n)
+        N = np.asarray(ctx.getPrimitiveNormal(ul), np.float32).reshape(n, 3)
+        C = np.asarray(ctx.getPrimitiveColor(ul), np.float32).reshape(n, -1)
+    else:
+        T, A, N, C = np.zeros(0, np.int32), np.zeros(0, np.float32), np.zeros((0, 3), np.float32), np.zeros((0, 3), np.float32)
     if C.shape[1] == 3:
         C = np.c_[C, np.ones(n, np.float32)]
-    o = np.argsort(uu)
+    o = np.arange(n)
     P = np.array([ctx.getPrimitiveParentObjectID(int(u)) for u in uu[o]], np.int64)
     # textures: batch UV / solid fraction for the explicit UUID list (getAllUUIDs is not sorted). Texture
     # files are read one by one: the batch getter slices the decoded str with C byte offsets, which is
@@ -166,7 +186,10 @@ def helios_snapshot(ctx) -> Snapshot:
             k = (uoff[i + 1] - uoff[i]) // 2
             UV[i, :k], nuv[i] = flat[uoff[i]:uoff[i + 1]].reshape(-1, 2), k
         SF = np.asarray(ctx.getPrimitiveSolidFraction(us), np.float32).reshape(n)
-    oids = sorted(ctx.getAllObjectIDs())
+    if include_hidden:
+        oids = _all_ids_including_hidden(ctx.getObjectCount(), ctx.doesObjectExist, 1)
+    else:
+        oids = sorted(ctx.getAllObjectIDs())
     from .snapshot import ObjectTable
     objs = ObjectTable(
         np.array(oids, np.int64),
@@ -174,8 +197,11 @@ def helios_snapshot(ctx) -> Snapshot:
         [np.array(ctx.getObjectPrimitiveUUIDs(i), np.int64) for i in oids],
         np.array([[*_vec(ctx.getObjectCenter(i))] for i in oids], np.float32).reshape(-1, 3),
         np.array([np.asarray(ctx.getObjectTransformationMatrix(i), np.float32).reshape(16) for i in oids],
-                 np.float32).reshape(-1, 16))
-    return Snapshot(uu[o], T[o], V[o], nv[o], A[o], N[o], C[o], P, objs, uv=UV, nuv=nuv, texture=tex, solid_fraction=SF)
+                 np.float32).reshape(-1, 16),
+        hidden=np.array([bool(ctx.isObjectHidden(i)) for i in oids], bool))
+    hidden = np.array([bool(ctx.isPrimitiveHidden(u)) for u in us], bool)
+    return Snapshot(uu[o], T[o], V[o], nv[o], A[o], N[o], C[o], P, objs, uv=UV, nuv=nuv, texture=tex,
+                    solid_fraction=SF, hidden=hidden)
 
 
 def _vec(v):

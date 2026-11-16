@@ -52,7 +52,7 @@ def compare_snapshots(a: Snapshot, b: Snapshot, max_ulp: int = 0, abs_floor: flo
         missing = np.setxor1d(a.uuid, b.uuid)
         r.first_divergence = f"uuid sets differ ({len(common)} common, first unmatched {missing[:5].tolist()})"
         return r
-    for name in ("type", "nverts", "parent"):
+    for name in ("type", "nverts", "parent", "hidden"):
         bad = np.nonzero(getattr(a, name) != getattr(b, name))[0]
         r.checks[name] = {"n_bad": len(bad)}
         if len(bad):
@@ -128,6 +128,11 @@ def _compare_objects(a, b, r: Report, max_ulp: int, abs_floor: float):
         r.checks["objects"] = {"n_a": len(a), "n_b": len(b)}
         r.first_divergence = r.first_divergence or f"object ids/types differ: {a.oid[:5]} {a.type[:5]} vs {b.oid[:5]} {b.type[:5]}"
         return
+    bad = np.nonzero(a.hidden != b.hidden)[0]
+    r.checks["obj_hidden"] = {"n_bad": len(bad)}
+    if len(bad):
+        r.ok = False
+        r.first_divergence = r.first_divergence or f"hidden flag of object {a.oid[bad[0]]}"
     bad_members = [int(o) for o, x, y in zip(a.oid, a.uuids, b.uuids) if not np.array_equal(x, y)]
     r.checks["obj_uuids"] = {"n": len(a), "n_bad": len(bad_members)}
     if bad_members:

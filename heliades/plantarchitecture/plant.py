@@ -127,8 +127,21 @@ def _write_floral_buds(w, ph, petiole):
             raise NotImplementedError("writing peduncle swings is not ported")
         w("\t\t\t\t\t\t\t<inflorescence>")
         w(f"\t\t\t\t\t\t\t\t<flower_offset>{cout(pp.inflorescence.flower_offset.val())}</flower_offset>")
-        if fbud.inflorescence_bases:
-            raise NotImplementedError("writing flowers / fruit is W3-D")
+        for i in range(len(fbud.inflorescence_bases)):                    # InputOutput.cpp:760-784 (W3-D)
+            w("\t\t\t\t\t\t\t\t<flower>")
+            if i < len(fbud.inflorescence_rotation):
+                r = fbud.inflorescence_rotation[i]
+                w(f"\t\t\t\t\t\t\t\t\t<flower_pitch>{cout(rad2deg(r.pitch))}</flower_pitch>")
+                w(f"\t\t\t\t\t\t\t\t\t<flower_yaw>{cout(rad2deg(r.yaw))}</flower_yaw>")
+                w(f"\t\t\t\t\t\t\t\t\t<flower_roll>{cout(rad2deg(r.roll))}</flower_roll>")
+                w(f"\t\t\t\t\t\t\t\t\t<flower_azimuth>{cout(rad2deg(r.azimuth))}</flower_azimuth>")
+                if f32(r.gravity_fraction) > 0:
+                    w(f"\t\t\t\t\t\t\t\t\t<flower_gravity_fraction>{cout(r.gravity_fraction)}</flower_gravity_fraction>")
+                if f32(r.contact_tilt_angle) > 0:
+                    raise NotImplementedError("writing fruit contact tilts is not ported")
+            if i < len(fbud.inflorescence_base_scales):
+                w(f"\t\t\t\t\t\t\t\t\t<flower_base_scale>{cout(fbud.inflorescence_base_scales[i])}</flower_base_scale>")
+            w("\t\t\t\t\t\t\t\t</flower>")
         w("\t\t\t\t\t\t\t</inflorescence>")
         w("\t\t\t\t\t\t</floral_bud>")
 

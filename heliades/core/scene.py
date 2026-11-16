@@ -14,19 +14,21 @@ from __future__ import annotations
 
 import numpy as np
 
+from .data import DataMixin
 from .fileio import FileIOMixin
+from .materials import MaterialsMixin
 from .object_transforms import ObjectTransformsMixin
-from .objects import CompoundObject, ObjectsMixin  # noqa: F401
+from .objects import CompoundObject, ObjectsMixin, TubeEditMixin  # noqa: F401
 from .primitives import PATCH, TRIANGLE, VOXEL, Primitive, triangle_transform  # noqa: F401
 from .random import ContextRandom
-from .texture import Texture, does_texture_file_exist, get_file_extension, resolve_file_path
+from .texture import Texture, does_texture_file_exist, get_file_extension, resolve_file_path, try_resolve_file_path
 from .shapes import ShapesMixin
 from ..migration_registry import ports
 
 f32 = np.float32
 
 
-class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
+class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
     """Geometry + data container (helios::Context counterpart)."""
 
     def __init__(self):
@@ -34,9 +36,15 @@ class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
         self.current_uuid = 0
         self.objects: dict[int, CompoundObject] = {}
         self.current_object_id = 1  # object ID 0 is reserved for "no parent object"
-        self.primitive_data: dict[str, dict[int, object]] = {}
+        self.primitive_data: dict[str, dict[int, object]] = {}   # label -> {UUID: data.TypedData}
+        self.object_data: dict[str, dict[int, object]] = {}      # label -> {objID: data.TypedData}
         self.rng = ContextRandom()
         self.textures: dict[str, Texture] = {}   # Context::textures, keyed by the file string as passed
+        # Primitive::ishidden / CompoundObject::ishidden. Kept outside the Primitive so that copies (which
+        # Helios creates visible) do not inherit it; IDs are never reused, so a stale entry is harmless.
+        self.hidden_primitives: set[int] = set()
+        self.hidden_objects: set[int] = set()
+        self._init_materials()
 
     # ---- random ----
     @ports("Context::seedRandomGenerator")
@@ -52,7 +60,7 @@ class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
         return self.rng.randn(mean, stddev)
 
     # ---- primitives ----
-    def _new(self, ptype, transform, color) -> int:
+    def _new(self, ptype, transform, color, automatic_material: bool = True) -> int:
         c = np.ones(4, f32)
         if color is not None:
             c[: len(color)] = color
@@ -60,6 +68,8 @@ class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
             c[:3] = 0
         u = self.current_uuid
         self.primitives[u] = Primitive(u, ptype, transform.astype(f32), c)
+        if automatic_material:
+            self._assign_automatic_material(self.primitives[u])
         self.current_uuid += 1
         return u
 
@@ -100,9 +110,10 @@ class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
         (cached) texture, material color black. The texture must already be registered."""
         uv = np.minimum(np.asarray(uv, f32).reshape(-1, 2), f32(1.0))   # std::min(uv, 1.f); lower end unclamped
         sf = self.textures[texture_file].get_solid_fraction(uv)
-        u = self._new(ptype, transform, None)
+        u = self._new(ptype, transform, None, automatic_material=False)
         p = self.primitives[u]
         p.texture_file, p.uv, p.solid_fraction = texture_file, uv, f32(sf)
+        self._assign_automatic_material(p)     # black + texture
         return u
 
     def _place_patch(self, p, size, rotation, center):
@@ -181,8 +192,91 @@ class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
         self.delete_primitives(uuid)
 
     @ports("Context::getAllUUIDs")
-    def all_uuids(self) -> list[int]:
-        return sorted(self.primitives)
+    def all_uuids(self, include_hidden: bool = False) -> list[int]:
+        """Sorted UUIDs. Hidden primitives are skipped, as Helios does (include_hidden is a Heliades
+        extension for snapshots of prototype geometry)."""
+        hid = self.hidden_primitives
+        return sorted(u for u in self.primitives if include_hidden or u not in hid)
+
+    @ports("Context::getPrimitiveCount")
+    def primitive_count(self, include_hidden: bool = True) -> int:
+        if include_hidden:
+            return len(self.primitives)
+        return sum(1 for u in self.primitives if u not in self.hidden_primitives)
+
+    @ports("Context::doesPrimitiveExist")
+    def does_primitive_exist(self, uuid: int) -> bool:
+        return int(uuid) in self.primitives
+
+    # ---- hidden primitives and objects ----
+    @ports("Context::hidePrimitive(uint)", "Context::hidePrimitive(const std::vector<uint>&)")
+    def hide_primitive(self, uuids):
+        for u in _ids(uuids):
+            if u not in self.primitives:                 # primitives.at() throws (no debug check)
+                raise ValueError(f"ERROR (Context::hidePrimitive): UUID of {u} does not exist in the Context.")
+            self.hidden_primitives.add(u)
+
+    @ports("Context::showPrimitive(uint)", "Context::showPrimitive(const std::vector<uint>&)")
+    def show_primitive(self, uuids):
+        for u in _ids(uuids):
+            if u not in self.primitives:
+                raise ValueError(f"ERROR (Context::showPrimitive): UUID of {u} does not exist in the Context.")
+            self.hidden_primitives.discard(u)
+
+    @ports("Context::isPrimitiveHidden")
+    def is_primitive_hidden(self, uuid: int) -> bool:
+        if int(uuid) not in self.primitives:
+            raise ValueError(f"ERROR (Context::isPrimitiveHidden): UUID of {uuid} does not exist in the Context.")
+        return int(uuid) in self.hidden_primitives
+
+    @ports("Context::hideObject(uint)", "Context::hideObject(const std::vector<uint>&)")
+    def hide_object(self, oids):
+        """Hides the object and every member primitive. Hidden objects still occupy their IDs and
+        UUIDs, can be copied (the copies are visible) and transformed."""
+        for o in _ids(oids):
+            obj = self.objects.get(o)
+            if obj is None:
+                raise ValueError(f"ERROR (Context::hideObject): Object ID of {o} does not exist in the Context.")
+            self.hidden_objects.add(o)
+            for u in obj.uuids:
+                if u not in self.primitives:
+                    raise ValueError(f"ERROR (Context::hideObject): Primitive UUID of {u} does not exist in the Context.")
+                self.hidden_primitives.add(u)
+
+    @ports("Context::showObject(uint)", "Context::showObject(const std::vector<uint>&)")
+    def show_object(self, oids):
+        for o in _ids(oids):
+            obj = self.objects.get(o)
+            if obj is None:
+                raise ValueError(f"ERROR (Context::showObject): Object ID of {o} does not exist in the Context.")
+            self.hidden_objects.discard(o)
+            for u in obj.uuids:
+                if u not in self.primitives:
+                    raise ValueError(f"ERROR (Context::showObject): Primitive UUID of {u} does not exist in the Context.")
+                self.hidden_primitives.discard(u)
+
+    @ports("Context::isObjectHidden")
+    def is_object_hidden(self, oid: int) -> bool:
+        if int(oid) not in self.objects:
+            raise ValueError(f"ERROR (Context::isObjectHidden): Object ID of {oid} does not exist in the Context.")
+        return int(oid) in self.hidden_objects
+
+    # ---- bookkeeping wrapped around W1-B's copy / delete ----
+    def _copy_primitive_one(self, uuid: int) -> int:
+        new = super()._copy_primitive_one(uuid)
+        self._material_reference_copied(self.primitives[new])     # same material, one more user
+        return new
+
+    def delete_primitives(self, uuids):
+        ids = _ids(uuids)
+        alive = {u: self.primitives[u] for u in ids if u in self.primitives}
+        try:
+            super().delete_primitives(uuids)
+        finally:
+            for u, p in alive.items():
+                if u not in self.primitives:
+                    self._material_reference_deleted(p)
+                    self.hidden_primitives.discard(u)
 
     @ports("Context::getPrimitiveVertices")
     def primitive_vertices(self, uuid: int) -> np.ndarray:
@@ -216,23 +310,13 @@ class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
         if not self._transform_locked(self.primitives[uuid]):
             self.primitives[uuid].scale(s)
 
-    # ---- primitive data ----
-    @ports("Context::setPrimitiveData")
-    def set_primitive_data(self, uuid: int, label: str, value):
-        self.primitive_data.setdefault(label, {})[uuid] = value
-
-    @ports("Context::getPrimitiveData")
-    def get_primitive_data(self, uuid: int, label: str):
-        return self.primitive_data[label][uuid]
-
-    @ports("Context::doesPrimitiveDataExist")
-    def does_primitive_data_exist(self, uuid: int, label: str) -> bool:
-        return uuid in self.primitive_data.get(label, {})
-
     # ---- bulk ----
-    def snapshot(self) -> "Snapshot":
+    def snapshot(self, include_hidden: bool = False) -> "Snapshot":
+        """Dense dump sorted by UUID: by default what Helios's bulk getters see (getAllUUIDs /
+        getAllObjectIDs skip hidden primitives and objects); with include_hidden, everything, with the
+        ``hidden`` flags set."""
         from ..parity.snapshot import ObjectTable, Snapshot
-        uu = self.all_uuids()
+        uu = self.all_uuids(include_hidden)
         n = len(uu)
         Vt, nv = np.zeros((n, 4, 3), f32), np.zeros(n, np.int32)
         A, N, C, T = np.zeros(n, f32), np.zeros((n, 3), f32), np.zeros((n, 4), f32), np.zeros(n, np.int32)
@@ -248,11 +332,30 @@ class Scene(ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
                 UV[i, : len(p.uv)], nuv[i] = p.uv, len(p.uv)
             SF[i] = p.solid_fraction
             tex.append(p.texture_file or "")
-        oids = self.all_object_ids()
+        oids = self.all_object_ids(include_hidden)
         objs = ObjectTable(np.array(oids, np.int64),
                            np.array([self.objects[o].type for o in oids], np.int32),
                            [np.array(self.objects[o].uuids, np.int64) for o in oids],
                            np.array([self.object_center(o) for o in oids], f32).reshape(-1, 3),
-                           np.array([self.objects[o].transform for o in oids], f32).reshape(-1, 16))
+                           np.array([self.objects[o].transform for o in oids], f32).reshape(-1, 16),
+                           hidden=np.array([o in self.hidden_objects for o in oids], bool))
         return Snapshot(np.array(uu, np.int64), T, Vt, nv, A, N, C, P, objs,
-                        uv=UV, nuv=nuv, texture=tex, solid_fraction=SF)
+                        uv=UV, nuv=nuv, texture=tex, solid_fraction=SF,
+                        hidden=np.array([u in self.hidden_primitives for u in uu], bool))
+
+
+def _ids(x) -> list[int]:
+    return [int(x)] if np.isscalar(x) else [int(i) for i in x]
+
+
+@ports("helios::resolvePluginAsset")
+def resolve_plugin_asset(plugin_name: str, asset_path: str) -> str:
+    """resolveFilePath("plugins/<plugin>/<asset>"): cwd first, then the build directory ($HELIOS_BUILD,
+    else cwd or its parent if it contains plugins/). Raises if the file is not found."""
+    return resolve_file_path(f"plugins/{plugin_name}/{asset_path}")
+
+
+@ports("helios::tryResolvePluginAsset")
+def try_resolve_plugin_asset(plugin_name: str, asset_path: str) -> str:
+    """Like resolve_plugin_asset, but '' instead of raising."""
+    return try_resolve_file_path(f"plugins/{plugin_name}/{asset_path}")

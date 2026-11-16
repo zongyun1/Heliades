@@ -125,3 +125,82 @@ def rotate_point_about_line(point, line_base, line_direction, theta) -> np.ndarr
     pz = f32(f32(f32(f32(c * f32(u * u + v * v)) - f32(w * f32(f32(f32(f32(a * u + b * v) - u * x) - v * y) - w * z))) * one_ct
                  + z * ct) + f32(f32(f32(-b * u + a * v) - v * x) + u * y) * st)
     return np.array([px, py, pz], f32)
+
+
+# ---- helios:: scalar helpers (global.cpp / global.h) ------------------------------------------
+
+def _load_libm_extra():
+    import ctypes
+    import ctypes.util
+    try:
+        m = ctypes.CDLL(ctypes.util.find_library("m") or "libm.so.6")
+        fn = m.asinf
+        fn.restype, fn.argtypes = ctypes.c_float, [ctypes.c_float]
+        return fn
+    except (OSError, AttributeError):
+        return None
+
+
+_ASINF = _load_libm_extra()
+_M_PI_F = f32(math.pi)          # float(M_PI)
+_180_F = f32(180.0)
+
+
+def asinf(x) -> np.float32:
+    """C asinf (glibc float version, not necessarily correctly rounded)."""
+    return f32(_ASINF(float(f32(x)))) if _ASINF else f32(math.asin(float(f32(x))))
+
+
+@ports("helios::deg2rad")
+def deg2rad(deg) -> np.float32:
+    """deg * float(M_PI) / 180.f, left to right in float."""
+    return f32(f32(f32(deg) * _M_PI_F) / _180_F)
+
+
+@ports("helios::rad2deg")
+def rad2deg(rad) -> np.float32:
+    """rad * 180.f / float(M_PI), left to right in float."""
+    return f32(f32(f32(rad) * _180_F) / _M_PI_F)
+
+
+@ports("helios::acos_safe")
+def acos_safe(x) -> np.float32:
+    """Clamp to [-1, 1] (compared in double, which is exact for a float), then acosf."""
+    x = f32(x)
+    if x < -1.0:
+        x = f32(-1.0)
+    elif x > 1.0:
+        x = f32(1.0)
+    return acosf(x)
+
+
+@ports("helios::asin_safe")
+def asin_safe(x) -> np.float32:
+    x = f32(x)
+    if x < -1.0:
+        x = f32(-1.0)
+    elif x > 1.0:
+        x = f32(1.0)
+    return asinf(x)
+
+
+@ports("helios::clamp")
+def clamp(value, lo, hi):
+    """helios::clamp: ``value < min`` first, then ``value > max``; NaN passes through unchanged.
+    The result has the type of ``value`` (callers pass numpy scalars of the C++ type)."""
+    if value < lo:
+        return type(value)(lo) if isinstance(value, np.generic) else lo
+    if value > hi:
+        return type(value)(hi) if isinstance(value, np.generic) else hi
+    return value
+
+
+@ports("helios::sum(const std::vector<float>&)")
+def sum_f(values) -> np.float32:
+    """Running float sum from 0 in order; raises on an empty vector as Helios does."""
+    if len(values) == 0:
+        raise ValueError("ERROR (sum): Vector is empty.")
+    m = f32(0)
+    for v in values:
+        m = f32(m + f32(v))
+    return m

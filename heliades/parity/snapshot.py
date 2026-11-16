@@ -14,6 +14,11 @@ class ObjectTable:
     uuids: list[np.ndarray]         # member primitive UUIDs, in object order
     center: np.ndarray              # (m,3) float32, getObjectCenter
     transform: np.ndarray           # (m,16) float32, getObjectTransformationMatrix
+    hidden: np.ndarray = None       # (m,) bool isObjectHidden (all False unless snapshot(include_hidden=True))
+
+    def __post_init__(self):
+        if self.hidden is None:
+            self.hidden = np.zeros(len(self.oid), bool)
 
     @staticmethod
     def empty() -> "ObjectTable":
@@ -39,6 +44,7 @@ class Snapshot:
     nuv: np.ndarray = None              # (n,) int32 number of UVs (0 = untextured, 3 triangle, 4 patch)
     texture: list = None                # (n,) str getPrimitiveTextureFile as the backend reports it ('' = none)
     solid_fraction: np.ndarray = None   # (n,) float32 getPrimitiveSolidFraction
+    hidden: np.ndarray = None           # (n,) bool isPrimitiveHidden (all False unless snapshot(include_hidden=True))
 
     def __post_init__(self):
         n = len(self.uuid)
@@ -52,6 +58,8 @@ class Snapshot:
             self.texture = [""] * n
         if self.solid_fraction is None:
             self.solid_fraction = np.ones(n, np.float32)
+        if self.hidden is None:
+            self.hidden = np.zeros(n, bool)
 
     def __len__(self):
         return len(self.uuid)

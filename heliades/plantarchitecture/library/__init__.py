@@ -60,3 +60,10 @@ PLANT_BUILDERS["soybean"] = soybean.buildSoybeanPlant
 from . import capsicum, cherrytomato  # noqa: E402
 SHOOT_INITIALIZERS.update(cherrytomato=cherrytomato.initializeCherryTomatoShoots, capsicum=capsicum.initializeCapsicumShoots)
 PLANT_BUILDERS.update(cherrytomato=cherrytomato.buildCherryTomatoPlant, capsicum=capsicum.buildCapsicumPlant)
+
+# W4-C: strawberry and maize (shoot initializer + builder)
+from . import maize, strawberry  # noqa: E402
+SHOOT_INITIALIZERS["strawberry"] = lambda pa: strawberry.initializeStrawberryShoots(pa)
+PLANT_BUILDERS["strawberry"] = lambda pa, pos: strawberry.buildStrawberryPlant(pa, pos)
+SHOOT_INITIALIZERS["maize"] = lambda pa: maize.initializeMaizeShoots(pa)
+PLANT_BUILDERS["maize"] = lambda pa, pos: maize.buildMaizePlant(pa, pos)

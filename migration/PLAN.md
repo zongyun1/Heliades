@@ -31,7 +31,7 @@ evaluated against TomatoWUR. Scope decisions are in `BUILD_VS_BUY.md`; porting r
 | **W1-C shapes** | sphere, disk (int and int2 subdivisions), cone, box: colored overloads plus their object getters | `core/shapes.py` | — |
 | **W1-D tomato spec** | read-only analysis of `plantarchitecture` for the tomato build path. Output: `migration/modules/plantarchitecture/SPEC.md` (call graph, Context/global APIs used, RNG draw order and generator ownership, data structures, organ prototypes and assets) and the Wave 3 work breakdown | `migration/modules/plantarchitecture/*` | — |
 
-## Wave 2
+## Wave 2 (running: W2-A OBJ + polymesh topology, W2-C plantarchitecture data layer, W2-D core gaps)
 
 - **W2-A OBJ loader:** `loadOBJ` with Helios's face, UV and material ordering. Depends on W1-A.
 - **W2-B textured shapes:** textured overloads of the W1-C shapes. Depends on W1-A and W1-C.
@@ -47,8 +47,9 @@ Work is split according to the W1-D breakdown. Expected packages:
 - inflorescence and fruit;
 - `buildPlantInstanceFromLibrary("tomato")`.
 
-The acceptance case is `plantarchitecture.tomato`: ages {10, 30, 50, 75} × seeds {0..7}, at ulp
-tier.
+The acceptance case is `plantarchitecture.tomato`: ages {10, 30, 50, 75, 100, 120} × seeds {1..8}, at
+0-ulp tier. Seed 0 is the same as seed 1 in minstd_rand0, and the first flowers and fruit appear
+between days 75 and 100 (W1-D). Packages W3-A…E follow SPEC.md §8.
 
 ## Wave 4 (last porting wave)
 

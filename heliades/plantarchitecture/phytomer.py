@@ -395,6 +395,53 @@ def create_petiole_floral_buds(max_floral_buds_per_petiole, parent_index: int, p
     return buds
 
 
+@ports("PlantArchitecture::detectAttractionPointsInCone")
+def detectAttractionPointsInCone(points, vertex, look_direction, look_ahead_distance, half_angle_degrees):
+    """PA:1929-2005 (the explicit-points overload). Returns the unit direction to the point closest to the cone
+    axis, or None. ``half_angle_degrees * M_PI / 180.0f`` is a double product narrowed to float; ``std::acos``
+    of a float is glibc ``acosf``; ``distance <= 1e-6`` compares in double."""
+    if len(points) == 0 or look_ahead_distance <= 0 or half_angle_degrees <= 0 or half_angle_degrees >= 180:
+        return None
+    half_angle_rad = f32(float(f32(half_angle_degrees)) * math.pi / 180.0)
+    axis = V.normalize(look_direction)
+    vertex = _v(vertex)
+    found = False
+    min_angular_distance = f32(np.finfo(np.float32).max)
+    closest = None
+    for point in points:
+        to_point = point - vertex
+        d = V.magnitude(to_point)
+        if float(d) <= 1e-6 or d > look_ahead_distance:
+            continue
+        cos_angle = V.dot(axis, V.normalize(to_point))
+        cos_angle = max(f32(-1), min(f32(1), cos_angle))
+        angle = V.acosf(cos_angle)
+        if angle <= half_angle_rad:
+            found = True
+            if angle < min_angular_distance:
+                min_angular_distance = angle
+                closest = point
+    if not found:
+        return None
+    return V.normalize(closest - vertex)
+
+
+@ports("Phytomer::calculateAttractionPointDirection")
+def calculateAttractionPointDirection(pa, plantID, internode_base_origin, internode_axis):
+    """PA:1809-1831, plant-specific points only (the global points raise before this is reached).
+    Returns (direction, active)."""
+    inst = pa.plant_instances.get(plantID)
+    if inst is None or not getattr(inst, "attraction_points_enabled", False) or len(inst.attraction_points) == 0:
+        return np.zeros(3, f32), False
+    look_direction = V.normalize(internode_axis)
+    half_angle_degrees = V.rad2deg(inst.attraction_cone_half_angle_rad)
+    d = detectAttractionPointsInCone(inst.attraction_points, internode_base_origin, look_direction,
+                                     f32(inst.attraction_cone_height), half_angle_degrees)
+    if d is None:
+        return np.zeros(3, f32), False
+    return V.normalize(d), True
+
+
 class Phytomer:
     """helios Phytomer (geometry part, W3-B)."""
 
@@ -405,8 +452,6 @@ class Phytomer:
                  parent_petiole_axis, internode_base_origin, shoot_base_rotation: AxisRotation, internode_radius,
                  internode_length_max, internode_length_scale_factor_fraction, leaf_scale_factor_fraction, rank: int,
                  plantarchitecture_ptr, context_ptr, prescribed_internode=None):
-        if prescribed_internode is not None:
-            raise NotImplementedError("Phytomer from a prescribed internode (addShootFromNodePositions) is not ported")
         pa, ctx = plantarchitecture_ptr, context_ptr
         self.rank = rank
         self.context_ptr = ctx
@@ -471,6 +516,16 @@ class Phytomer:
 
         if internode_radius == 0:
             internode_radius = MIN_TUBE_RADIUS_FOR_GEOMETRY
+
+        # W4-D: a prescribed internode is built at its measured length (PA:2762-2770)
+        if prescribed_internode is not None:
+            internode_length_max = V.magnitude(_v(prescribed_internode.tip_node) - _v(prescribed_internode.base_node))
+            self.internode_length_max = internode_length_max
+            internode_length_scale_factor_fraction = f32(1)
+            self.current_internode_scale_factor = f32(1)
+            internode_base_origin = _v(prescribed_internode.base_node)
+            internode_radius = f32(prescribed_internode.base_radius)
+            self.internode_radius_initial = internode_radius
 
         # ---- internode variables
         internode_length = f32(internode_length_scale_factor_fraction * internode_length_max)
@@ -598,15 +653,42 @@ class Phytomer:
             shoot_bending_axis = _v((0, 1, 0))
 
         if pa.collision_detection_enabled or pa.attraction_points_enabled or pa.solid_obstacle_avoidance_enabled:
-            raise NotImplementedError("collision / attraction-point / solid-obstacle guidance is not ported")
+            raise NotImplementedError("collision / global attraction-point / solid-obstacle guidance is not ported")
+        # W4-D: per-plant attraction points (calculateAttractionPointDirection, PA:1809-1831), read before the
+        # prescribed branch as in C++ (no draws)
+        attraction_direction, attraction_active = calculateAttractionPointDirection(pa, self.plantID,
+                                                                                    _v(internode_base_origin),
+                                                                                    internode_axis)
 
         self.internode_curvature_perturbations = [f32(0)] * Ndiv_internode_length
         self.internode_yaw_perturbations = [f32(0)] * Ndiv_internode_length
         self.internode_azimuthal_restoring_angles = [f32(0)] * Ndiv_internode_length
         self.internode_gravitropic_angles = [f32(0)] * Ndiv_internode_length
 
+        # W4-D: a prescribed internode reads its axis from the endpoints (PA:2999-3030)
+        if prescribed_internode is not None:
+            base_node, tip_node = _v(prescribed_internode.base_node), _v(prescribed_internode.tip_node)
+            internode_axis = V.normalize(tip_node - base_node)
+            petiole_rotation_axis = petiole_rotation_axis - V.dot(petiole_rotation_axis, internode_axis) * internode_axis
+            if V.magnitude(petiole_rotation_axis) < f32(1e-6):
+                petiole_rotation_axis = V.cross(internode_axis, (0, 0, 1))
+                if V.magnitude(petiole_rotation_axis) < f32(1e-6):
+                    petiole_rotation_axis = _v((1, 0, 0))
+            petiole_rotation_axis = V.normalize(petiole_rotation_axis)
+            shoot_bending_axis = V.cross(internode_axis, (0, 0, 1))
+            if V.magnitude(shoot_bending_axis) < f32(1e-6):
+                shoot_bending_axis = _v((0, 1, 0))
+            if phytomer_index == 0:
+                parent_shoot.radial_outward_axis = _rot(internode_axis, petiole_rotation_axis, f32(f32(0.5) * PI_F))
+            br, tr = f32(prescribed_internode.base_radius), f32(prescribed_internode.tip_radius)
+            for inode_segment in range(Ndiv_internode_length + 1):
+                segment_fraction = f32(f32(inode_segment) / f32(Ndiv_internode_length))
+                phytomer_internode_vertices[inode_segment] = base_node + _smul(segment_fraction, tip_node - base_node)
+                phytomer_internode_radii[inode_segment] = f32(br + f32(segment_fraction * f32(tr - br)))
+                self.internode_colors[inode_segment] = pp.internode.color
+
         # ---- internode segments: gravitropism + tortuosity (OU on curvature) + azimuthal restoring force
-        for inode_segment in range(1, Ndiv_internode_length + 1):
+        for inode_segment in range(1, Ndiv_internode_length + 1 if prescribed_internode is None else 1):
             if ((abs(float(parent_shoot.gravitropic_curvature)) > 0 or parent_shoot_parameters.tortuosity.val() > 0)
                     and self.shoot_index[0] > 0):
                 ds = dr_internode_max
@@ -660,7 +742,14 @@ class Phytomer:
                         internode_axis = _rot(internode_axis, (0, 0, 1), deg2rad(azimuthal_restoring_angle))
                     internode_axis = V.normalize(internode_axis)
 
-            # solid obstacle avoidance / attraction / soft collision: all disabled (checked above)
+            # solid obstacle avoidance / soft collision: disabled (checked above). W4-D: attraction (PA:3162-3189)
+            if attraction_active:
+                inst = pa.plant_instances[self.plantID]
+                attraction_weight = f32(inst.attraction_weight)
+                final_direction = (f32(f32(1.0) - attraction_weight) * internode_axis
+                                   + attraction_weight * attraction_direction)
+                internode_axis = V.normalize(final_direction)
+                pa.collision_avoidance_applied = True
             phytomer_internode_vertices[inode_segment] = (phytomer_internode_vertices[inode_segment - 1]
                                                           + _smul(dr_internode, internode_axis))
             phytomer_internode_radii[inode_segment] = internode_radius
@@ -675,17 +764,42 @@ class Phytomer:
 
         # ---- internode Context geometry
         if build_context_geometry_internode:
+            texture = ""
             if pp.internode.image_texture:
-                raise NotImplementedError("textured internode tubes are not ported (tomato has none)")
+                # W4-D: textured internode tubes (PA:3243-3284): the bark repeats every 0.25 m along the shoot
+                from .leaf_prototype import resolveTextureFile
+                if pp.internode.image_class_map_file:
+                    raise NotImplementedError("internode spectral class maps are not ported")
+                texture = resolveTextureFile(pp.internode.image_texture)
+                texture_repeat_length = f32(0.25)
+                length = f32(0)
+                for ph in parent_shoot.phytomers:
+                    length = f32(length + ph.internode_length_max)
+                nuv = len(phytomer_internode_vertices)
+                dy = f32(internode_length_max / f32(nuv - 1))
+                uv_y = []
+                for j in range(nuv):
+                    t = f32(f32(length + f32(f32(j) * dy)) / texture_repeat_length)
+                    uv_y.append(f32(t - f32(np.floor(t))))
             plant_name = pa.plant_instances[self.plantID].plant_name
             stem_material_name = f"{plant_name}_{parent_shoot.shoot_type_label}_stem"
             if not ctx.does_object_exist(parent_shoot.internode_tube_objID):
-                parent_shoot.internode_tube_objID = ctx.add_tube_object(Ndiv_internode_radius, phytomer_internode_vertices,
-                                                                        phytomer_internode_radii, self.internode_colors)
+                if texture:
+                    parent_shoot.internode_tube_objID = ctx.add_tube_object_textured(
+                        Ndiv_internode_radius, phytomer_internode_vertices, phytomer_internode_radii, texture, uv_y)
+                else:
+                    parent_shoot.internode_tube_objID = ctx.add_tube_object(Ndiv_internode_radius, phytomer_internode_vertices,
+                                                                            phytomer_internode_radii, self.internode_colors)
             else:
                 for inode_segment in range(1, Ndiv_internode_length + 1):
-                    ctx.append_tube_segment(parent_shoot.internode_tube_objID, phytomer_internode_vertices[inode_segment],
-                                            phytomer_internode_radii[inode_segment], self.internode_colors[inode_segment])
+                    if texture:
+                        ctx.append_tube_segment_textured(parent_shoot.internode_tube_objID,
+                                                         phytomer_internode_vertices[inode_segment],
+                                                         phytomer_internode_radii[inode_segment], texture,
+                                                         (uv_y[inode_segment - 1], uv_y[inode_segment]))
+                    else:
+                        ctx.append_tube_segment(parent_shoot.internode_tube_objID, phytomer_internode_vertices[inode_segment],
+                                                phytomer_internode_radii[inode_segment], self.internode_colors[inode_segment])
             ctx.set_primitive_data(ctx.object_primitive_uuids(parent_shoot.internode_tube_objID), "object_label", "shoot")
             name_organ_materials(pa, parent_shoot.internode_tube_objID, stem_material_name)
 
@@ -1303,6 +1417,7 @@ class Phytomer:
         else:
             ctx.delete_object(flat)
         self.leaf_objIDs = []
+        self.leaf_bases = []  # C++ clears it again here (W4-D)
         self.leaf_prototype_index = []
         self.leaf_pose_prescribed = []
         self.leaf_angle_steering = []

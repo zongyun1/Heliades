@@ -77,6 +77,8 @@ class PlantArchitecture(PlantArchitectureAPI):
         register_all(self)
         # W3-B: the tomato builder (age-0 part). library/__init__.py still lists no builder (W3-E owns it).
         self.plant_builders["tomato"] = lambda pos: buildTomatoPlant(self, pos)
+        from .library.build_parameters import register_build_parameters      # W4-D (PL:511-535)
+        register_build_parameters(self)
 
     @ports("PlantArchitecture::registerPlantModel")
     def registerPlantModel(self, name, shoot_init, plant_build, plant_type="herbaceous", leaf_inclination_Beta=(0.0, 0.0)):
@@ -205,10 +207,10 @@ class PlantArchitecture(PlantArchitectureAPI):
         if self.current_plant_model not in self.plant_builders:
             raise PlantArchitectureError("ERROR (PlantArchitecture::buildPlantInstanceFromLibrary): plant label of "
                                          f"{self.current_plant_model} does not exist in the library.")
-        if build_parameters:
-            raise NotImplementedError("build parameters are not ported (tomato declares none)")
-        self.current_build_parameters = {}
-        self.current_organ_build_parameters = {}
+        from .library.build_parameters import prepare_build_parameters     # W4-D (PL:667-696)
+        plant_bp, organ_bp = prepare_build_parameters(self, self.current_plant_model, build_parameters)
+        self.current_build_parameters = plant_bp
+        self.current_organ_build_parameters = organ_bp
         self.current_build_plant_name = self.current_plant_model
         try:
             plantID = self.plant_builders[self.current_plant_model](_as_vec3(base_position))

@@ -67,3 +67,10 @@ SHOOT_INITIALIZERS["strawberry"] = lambda pa: strawberry.initializeStrawberrySho
 PLANT_BUILDERS["strawberry"] = lambda pa, pos: strawberry.buildStrawberryPlant(pa, pos)
 SHOOT_INITIALIZERS["maize"] = lambda pa: maize.initializeMaizeShoots(pa)
 PLANT_BUILDERS["maize"] = lambda pa, pos: maize.buildMaizePlant(pa, pos)
+
+# W4-D: grapevine_VSP (shoot initializer + builder; its build parameters are registered by
+# PlantArchitecture.initializePlantModelRegistrations through build_parameters.register_build_parameters)
+from . import grapevine  # noqa: E402
+
+SHOOT_INITIALIZERS["grapevine_VSP"] = grapevine.initializeGrapevineVSPShoots
+PLANT_BUILDERS["grapevine_VSP"] = grapevine.buildGrapevineVSP

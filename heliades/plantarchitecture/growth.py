@@ -343,7 +343,12 @@ def _advance_plant_one_step(pa, plantID, dt):
             raise NotImplementedError("epicormic shoots are not ported")
 
     # flushDeferredPrunes (nothing queued), updatePlantLeafAngleDistributionTracking (off)
-    tree[0].updateShootNodes(False)
+    # W4-D: an attraction-steered phytomer forces the Context update (PA:12312-12326; collision detection is off)
+    if pa.collision_avoidance_applied and pa.force_update_on_collision:
+        tree[0].updateShootNodes(True)
+    else:
+        tree[0].updateShootNodes(False)
+    pa.collision_avoidance_applied = False
 
     for shoot in tree:
         if not ctx.does_object_exist(shoot.internode_tube_objID):

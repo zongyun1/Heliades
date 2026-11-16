@@ -12,12 +12,13 @@
 #   PlantArchitecture::validateShootTypes PA:7512-7521
 #   PlantArchitecture::breakPlantDormancy PA:10069-10081
 #   PlantArchitecture::setPlantPhenologicalThresholds PA:11669-11688
+#   Shoot::updateShootNodes / childShootOutwardAxis / terminateApicalBud / ... PA:2264-2547, 2598-2640 (W3-C)
 """The minimal Shoot / PlantInstance path a plant needs at age 0 (W3-B).
 
 Only what ``buildTomatoPlant`` reaches before ``advanceTime``: one base-stem shoot built with its initial
-phytomer(s), bud sampling, the phytomer creation callback and ``breakPlantDormancy``. The growth half of
-``Shoot`` (elongation, girth, ``updateShootNodes``, child shoots, the phyllochron) is W3-C, which should
-extend these classes rather than replace them.
+phytomer(s), bud sampling, the phytomer creation callback and ``breakPlantDormancy``. W3-C extended
+``Shoot`` with its growth half (``updateShootNodes``, ``childShootOutwardAxis``, apical/axillary termination,
+terminal floral buds, volumes, downstream inflorescence area); ``advanceTime`` itself is in ``growth.py``.
 """
 from __future__ import annotations
 
@@ -102,6 +103,12 @@ class Shoot:
         self.initial_heading_horizontal = np.zeros(3, f32)
         self.growth_state = ShootGrowthState()
         self.is_axis_continuation = False
+        # growth members (H:3200-3270, W3-C)
+        self.cached_base_offset = np.zeros(3, f32)
+        self.base_offset_pinned = False
+        self.last_parent_internode_axis = np.array([1e30, 1e30, 1e30], f32)
+        self.last_parent_node_radius = f32(-1)
+        self.old_shoot_volume = f32(0)
         # constructor body
         self.sugar_pool_molC = f32(0)
         self.phyllochron_counter = f32(0)
@@ -304,6 +311,166 @@ class Shoot:
                             phytomer.setVegetativeBudState(BUD_DEAD, vbud)
             phytomer.isdormant = False
 
+    # ---- growth (W3-C) ---------------------------------------------------------------------------
+
+    def isPruned(self) -> bool:
+        return not self.phytomers
+
+    @ports("Shoot::getGrowthNodeCapPerSeason")
+    def getGrowthNodeCapPerSeason(self) -> int:
+        if self.growth_state.max_nodes_per_season_growth_cap >= 0:
+            return self.growth_state.max_nodes_per_season_growth_cap
+        return int(self.shoot_parameters.max_nodes_per_season.val())
+
+    @ports("Shoot::terminateApicalBud")
+    def terminateApicalBud(self):
+        self.meristem_is_alive = False
+        self.phyllochron_counter = f32(0)
+
+    @ports("Shoot::terminateAxillaryVegetativeBuds")
+    def terminateAxillaryVegetativeBuds(self):
+        for phytomer in self.phytomers:
+            for petiole in phytomer.axillary_vegetative_buds:
+                for vbud in petiole:
+                    phytomer.setVegetativeBudState(BUD_DEAD, vbud)
+
+    @ports("Shoot::makeDormant")
+    def makeDormant(self):
+        raise NotImplementedError("Shoot::makeDormant (seasonal dormancy, leaf removal) is not ported; the tomato's "
+                                  "1000-day dormancy period is never reached before max_age")
+
+    @ports("Shoot::addTerminalFloralBud")
+    def addTerminalFloralBud(self):
+        """PA:2311-2333 (the buds only; their geometry is updateInflorescence, W3-D)."""
+        from .params import FloralBud, deg2rad, make_AxisRotation
+        from .tube_utils import PI_F
+        nbuds = int(self.shoot_parameters.max_terminal_floral_buds.val())
+        for bud in range(nbuds):
+            b = FloralBud()
+            b.isterminal = True
+            b.parent_index = 0
+            b.bud_index = bud
+            b.base_position = tuple(self.shoot_internode_vertices[-1][-1])
+            pitch_adjustment = f32(0)
+            if nbuds > 1:
+                pitch_adjustment = deg2rad(30)
+            yaw_adjustment = f32(f32(f32(f32(b.bud_index) * f32(2)) * PI_F) / f32(nbuds))
+            b.base_rotation = make_AxisRotation(pitch_adjustment, yaw_adjustment, 0)
+            b.bending_axis = (1, 0, 0)
+            b.dd_to_inflorescence_maturity = \
+                self.shoot_parameters.phytomer_parameters.inflorescence.inflorescence_maturity_period.val()
+            self.phytomers[-1].floral_buds.append([b])
+        self.shoot_parameters.max_terminal_floral_buds.resample()
+
+    @ports("Shoot::calculateShootInternodeVolume")
+    def calculateShootInternodeVolume(self) -> np.float32:
+        volume = f32(0)
+        for p, ph in enumerate(self.phytomers):
+            volume = f32(volume + ph.calculatePhytomerVolume(p))
+        return volume
+
+    @ports("Shoot::refreshDownstreamInflorescenceArea")
+    def refreshDownstreamInflorescenceArea(self) -> np.float32:
+        if self.isPruned():
+            return f32(0)
+        tree = self.plantarchitecture_ptr.plant_instances[self.plantID].shoot_tree
+        running_total = f32(0)
+        for p in range(len(self.phytomers) - 1, -1, -1):
+            ph = self.phytomers[p]
+            if ph.inflorescenceLoadsStem():
+                running_total = f32(running_total + ph.getInflorescenceArea())
+            for child in self.childIDs.get(p, []):
+                running_total = f32(running_total + tree[child].refreshDownstreamInflorescenceArea())
+            ph.downstream_inflorescence_area = running_total
+        return running_total
+
+    @ports("Shoot::sumDownstreamInflorescenceArea")
+    def sumDownstreamInflorescenceArea(self, start_node_index: int) -> np.float32:
+        if self.isPruned() or start_node_index >= len(self.phytomers):
+            return f32(0)
+        return self.phytomers[start_node_index].downstream_inflorescence_area
+
+    @ports("Shoot::updateShootNodes")
+    def updateShootNodes(self, update_context_geometry: bool):
+        """PA:2429-2547: re-seat a lateral on its parent's node (with the cached outward offset), optionally
+        push the internode tube to the Context, re-seat every phytomer's petiole/leaves, then the children."""
+        from ..core import vec as V
+        if not self.phytomers:
+            return
+        pa, ctx = self.plantarchitecture_ptr, self.context_ptr
+        tree = pa.plant_instances[self.plantID].shoot_tree
+        if self.parent_shoot_ID >= 0:
+            parent_shoot = tree[self.parent_shoot_ID]
+            current_origin = self.shoot_internode_vertices[0][0].copy()
+            parent_node_position = parent_shoot.shoot_internode_vertices[self.parent_node_index][-1]
+            parent_phytomer = parent_shoot.phytomers[self.parent_node_index]
+            parent_radius = parent_phytomer.getInternodeRadius(f32(1))
+            parent_internode_axis = parent_phytomer.getInternodeAxisVector(f32(1))
+            if self.is_axis_continuation:
+                self.cached_base_offset = np.zeros(3, f32)
+            else:
+                with np.errstate(over="ignore", invalid="ignore"):
+                    axis_moved = V.magnitude(parent_internode_axis - self.last_parent_internode_axis) > f32(1e-7)
+                if axis_moved or abs(f32(parent_radius - self.last_parent_node_radius)) > f32(1e-9):
+                    if self.base_offset_pinned:
+                        raise NotImplementedError("pinned branch offsets (posed plants) are not ported")
+                    outward_axis = childShootOutwardAxis(parent_shoot, self.parent_node_index, self.parent_petiole_index,
+                                                         parent_internode_axis, self.base_rotation)
+                    self.cached_base_offset = (f32(0.9) * outward_axis) * parent_radius
+                    self.last_parent_internode_axis = parent_internode_axis.copy()
+                    self.last_parent_node_radius = f32(parent_radius)
+            updated_origin = parent_node_position + self.cached_base_offset
+            shift = updated_origin - current_origin
+            if V.magnitude(shift) > f32(1e-6):
+                for row in self.shoot_internode_vertices:
+                    for i in range(len(row)):
+                        row[i] = row[i] + shift
+
+        if update_context_geometry and pa.build_context_geometry_internode and ctx.does_object_exist(self.internode_tube_objID):
+            ctx.set_tube_radii(self.internode_tube_objID, [r for row in self.shoot_internode_radii for r in row])
+            ctx.set_tube_nodes(self.internode_tube_objID, [v for row in self.shoot_internode_vertices for v in row])
+
+        for p, ph in enumerate(self.phytomers):
+            ph.setPetioleBase(self.shoot_internode_vertices[p][-1])
+
+        for node in sorted(self.childIDs):                    # std::map<int, std::vector<int>> order
+            for child_shoot_ID in self.childIDs[node]:
+                tree[child_shoot_ID].updateShootNodes(update_context_geometry)
+
+
+@ports("childShootOutwardAxis")
+def childShootOutwardAxis(parent_shoot, parent_node_index: int, petiole_index: int, parent_internode_axis,
+                          shoot_base_rotation):
+    """PA:2366-2427 (file-static): unit vector from the parent's axis toward the side the child emerges on."""
+    from ..core import vec as V
+    nullorigin = np.zeros(3, f32)
+    parent_internode_axis = np.asarray(parent_internode_axis, f32)
+    parent_phytomer = parent_shoot.phytomers[parent_node_index]
+    parent_petiole_axis = V.cross(parent_internode_axis, (0, 0, 1))
+    if V.magnitude(parent_petiole_axis) < f32(0.01):
+        parent_petiole_axis = np.array([0, 1, 0], f32)
+    parent_petiole_axis = V.normalize(parent_petiole_axis)
+    parent_petiole_axis = V.rotate_point_about_line(parent_petiole_axis, nullorigin, parent_internode_axis,
+                                                    parent_phytomer.internode_phyllotactic_azimuth)
+    if parent_phytomer.petiole_vertices:
+        petiole_axis = parent_phytomer.getPetioleAxisVector(f32(0), petiole_index)
+        outward = petiole_axis - V.dot(petiole_axis, parent_internode_axis) * parent_internode_axis
+        if V.magnitude(outward) < f32(1e-6):
+            return parent_petiole_axis
+        return V.normalize(outward)
+    child_axis = parent_internode_axis.copy()
+    if shoot_base_rotation.roll != 0:
+        child_axis = V.rotate_point_about_line(child_axis, nullorigin, parent_internode_axis, shoot_base_rotation.roll)
+    if shoot_base_rotation.pitch != 0:
+        base_pitch_axis = f32(-1) * V.cross(parent_internode_axis, parent_petiole_axis)
+        child_axis = V.rotate_point_about_line(child_axis, nullorigin, base_pitch_axis, f32(-shoot_base_rotation.pitch))
+    if shoot_base_rotation.yaw != 0:
+        child_axis = V.rotate_point_about_line(child_axis, nullorigin, parent_internode_axis, shoot_base_rotation.yaw)
+    outward = child_axis - V.dot(child_axis, parent_internode_axis) * parent_internode_axis
+    if V.magnitude(outward) < f32(1e-6):
+        return parent_petiole_axis
+    return V.normalize(outward)
+
 
 # ---- PlantArchitecture entry points (bound in architecture.py) -----------------------------------
 
@@ -330,6 +497,12 @@ def init_plant_state(pa):
     pa.organ_index_current = False
     pa.leaf_geometry_is_stub = False
     pa.leaf_prototype_function_override = None
+    # W3-C growth state
+    pa.ground_clipping_height = f32(-99999)
+    pa.fruit_branch_collision_enabled = False
+    pa.solid_obstacle_pruning_enabled = False
+    pa.inflorescence_geometry_draws_only = False   # opt-in: replay updateInflorescence's draws only (no W3-D geometry)
+    pa.inflorescence_geometry_is_stub = False      # set once a draws-only inflorescence was 'built'
 
 
 @ports("PlantArchitecture::addPlantInstance")

@@ -197,9 +197,48 @@ class PlantArchitecture:
             raise NotImplementedError("optional plant_name / plant_type object data are not ported")
         if self.current_plant_model in self.plant_leaf_inclination_distribution_map:
             raise NotImplementedError("leaf inclination distribution tracking is not ported")
-        if age > 0:
-            raise NotImplementedError("advanceTime (growth past age 0) is W3-C")
+        if f32(age) > 0:
+            self.advanceTime(plantID, age)
         return plantID
+
+    # ---- growth (W3-C, growth.py) ------------------------------------------------------------
+
+    @ports("PlantArchitecture::advanceTime")
+    def advanceTime(self, *args):
+        """advanceTime(days) (all plants), advanceTime(plantID or [plantIDs], days), advanceTime(years, days)."""
+        from .growth import advanceTime
+        if len(args) == 1:
+            return advanceTime(self, sorted(self.plant_instances), args[0])
+        a, b = args
+        if isinstance(a, (list, tuple)):
+            return advanceTime(self, list(a), b)
+        return advanceTime(self, [int(a)], b)
+
+    def advanceTimeYears(self, time_step_years: int, time_step_days):
+        """advanceTime(int years, float days): float(years) * 365.f + days."""
+        from .growth import advanceTime
+        return advanceTime(self, sorted(self.plant_instances), f32(f32(f32(time_step_years) * f32(365)) + f32(time_step_days)))
+
+    @ports("PlantArchitecture::addChildShoot")
+    def addChildShoot(self, plantID, parent_shoot_ID, parent_node_index, current_node_number, shoot_base_rotation,
+                      internode_radius, internode_length_max, internode_length_scale_factor_fraction,
+                      leaf_scale_factor_fraction, radius_taper, shoot_type_label, petiole_index=0):
+        from .growth import addChildShoot
+        return addChildShoot(self, plantID, parent_shoot_ID, parent_node_index, current_node_number, shoot_base_rotation,
+                             internode_radius, internode_length_max, internode_length_scale_factor_fraction,
+                             leaf_scale_factor_fraction, radius_taper, shoot_type_label, petiole_index)
+
+    @ports("PlantArchitecture::appendPhytomerToShoot")
+    def appendPhytomerToShoot(self, plantID, shootID, phytomer_parameters, internode_radius, internode_length_max,
+                              internode_length_scale_factor_fraction, leaf_scale_factor_fraction):
+        from .growth import appendPhytomerToShoot
+        return appendPhytomerToShoot(self, plantID, shootID, phytomer_parameters, internode_radius, internode_length_max,
+                                     internode_length_scale_factor_fraction, leaf_scale_factor_fraction)
+
+    @ports("PlantArchitecture::incrementPhytomerInternodeGirth")
+    def incrementPhytomerInternodeGirth(self, plantID, shootID, node_number, dt, update_context_geometry):
+        from .growth import incrementPhytomerInternodeGirth
+        incrementPhytomerInternodeGirth(self, plantID, shootID, node_number, dt, update_context_geometry)
 
 
 __all__ = ["PlantArchitecture", "context_generator", "vec3"]

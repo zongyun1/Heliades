@@ -213,7 +213,15 @@ def _write_phytomer(w, shoot, ph, phytomer_index):
         w("\t\t\t\t\t</petiole>")
 
     if not ph.petiole_length and ph.petiole_vertices:
-        raise NotImplementedError("writing shed petioles is not ported")
+        # removeLeaf() keeps the centerlines and floral buds: one <shed_petiole> per petiole index (W4-A)
+        for petiole, centerline in enumerate(ph.petiole_vertices):
+            w("\t\t\t\t\t<shed_petiole>")
+            if len(centerline):
+                offs = [np.asarray(n, f32) - np.asarray(centerline[0], f32) for n in centerline]
+                w("\t\t\t\t\t\t<centerline_offsets>" + ";".join(f"{cout(d[0])} {cout(d[1])} {cout(d[2])}" for d in offs)
+                  + "</centerline_offsets>")
+            _write_floral_buds(w, ph, petiole)
+            w("\t\t\t\t\t</shed_petiole>")
     entry_count = len(ph.petiole_vertices) if not ph.petiole_length else len(ph.petiole_length)
     for entry in range(entry_count, len(ph.floral_buds)):
         w("\t\t\t\t\t<internode_floral_buds>")

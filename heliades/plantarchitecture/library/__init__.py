@@ -47,3 +47,8 @@ def register_all(pa):
                               (lambda f=init: f(pa)) if init else _not_ported("shoot initializer", name),
                               (lambda pos, f=build: f(pa, pos)) if build else _not_ported("plant builder", name),
                               plant_type, beta if beta is not None else (0.0, 0.0))
+
+# W4-A: cherry tomato and capsicum (shoot initializers and plant builders)
+from . import capsicum, cherrytomato  # noqa: E402
+SHOOT_INITIALIZERS.update(cherrytomato=cherrytomato.initializeCherryTomatoShoots, capsicum=capsicum.initializeCapsicumShoots)
+PLANT_BUILDERS.update(cherrytomato=cherrytomato.buildCherryTomatoPlant, capsicum=capsicum.buildCapsicumPlant)

@@ -1199,6 +1199,38 @@ class Phytomer:
     def hasLeaf(self) -> bool:
         return bool(self.leaf_bases) and bool(self.leaf_bases[0])
 
+    @ports("Phytomer::removeLeaf")
+    def removeLeaf(self, detached_objIDs=None):
+        """PA:6761-6803 (W4-A). The petiole centerlines (``petiole_vertices``) stay: they still orient the next
+        phytomer, child shoots and peduncles. The downstream leaf area is *not* reduced (commented out in C++)."""
+        pa, ctx = self.plantarchitecture_ptr, self.context_ptr
+        pa.invalidateOrganIndex()
+        self.petiole_radii = []
+        self.petiole_colors = []
+        self.petiole_length = []
+        self.petiole_length_max = []
+        self.leaf_size_max = []
+        self.leaf_rotation = []
+        self.leaf_bases = []
+        flat = [o for petiole in self.leaf_objIDs for o in petiole]
+        if detached_objIDs is not None:
+            detached_objIDs.extend(flat)
+        else:
+            ctx.delete_object(flat)
+        self.leaf_objIDs = []
+        self.leaf_prototype_index = []
+        self.leaf_pose_prescribed = []
+        self.leaf_angle_steering = []
+        self.leaf_last_deformed_scale = []
+        self.petiole_path_prescribed = []
+        if self.build_context_geometry_petiole:
+            existing = self.getExistingPetioleObjIDs()
+            if detached_objIDs is not None:
+                detached_objIDs.extend(existing)
+            else:
+                ctx.delete_object(existing)
+            self.petiole_objIDs = []
+
     @ports("Phytomer::getExistingPetioleObjIDs")
     def getExistingPetioleObjIDs(self) -> list:
         return [o for o in self.petiole_objIDs if self.context_ptr.does_object_exist(o)]

@@ -104,10 +104,11 @@ def test_constructor_draws_23_calls():
     assert counts == [23]
 
 
-def test_age_past_zero_is_w3c():
+def test_age_past_zero_grows():
+    """W3-C replaced the age > 0 NotImplementedError with advanceTime (tests/heliades/test_plantarch_growth.py)."""
     _, pa = _tomato(1)
-    with pytest.raises(NotImplementedError, match="W3-C"):
-        pa.buildPlantInstanceFromLibrary((0, 0, 0), 2.0)
+    pid = pa.buildPlantInstanceFromLibrary((0, 0, 0), 2.0)
+    assert len(pa.plant_instances[pid].shoot_tree[0].phytomers) == 2
 
 
 def test_creation_function_hook_is_bound():

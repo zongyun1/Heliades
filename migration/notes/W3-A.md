@@ -1,31 +1,31 @@
-# W3-A: leaf blade prototypes
+# W3-A: leaf blade geometry
 
-Baseline: Helios 1.3.98. Scope from SPEC §8: `GenericLeafPrototype`, `buildLeafBladeLattice`, the petiolule,
-`deformLeafLattice`, `buildLeafPrototype`, `labelLeafPrototype`, `assignPetioluleMaterial` and the prototype cache
-on the private stream (AS:24-282, 517-924; PA:181-276, 3449-3497, 4532-4596, 4844-5014).
+Baseline: Helios 1.3.98. Scope (narrowed by the coordinator once W3-B landed): the blade geometry itself,
+`GenericLeafPrototype` with its petiolule, `buildLeafBladeLattice` and `deformLeafLattice` (AS:24-282, 517-924).
+The Phytomer side (buildLeafPrototype, labelLeafPrototype, assignPetioluleMaterial, recordLeafPrototypeRestGeometry,
+getLeafShape, nameOrganMaterials and the private-stream cache build) is W3-B's, in `phytomer.py`; I had ported
+these too and removed my copies after merging main (differences below).
 
 ## What is ported (`heliades/plantarchitecture/leaf_prototype.py`)
 
 | symbol | C++ |
 |---|---|
-| `GenericLeafPrototype(scene, prototype, compound_leaf_index)` (bound to `hooks.GenericLeafPrototype`, lazily) | AS:640-924 |
+| `GenericLeafPrototype(scene, prototype, compound_leaf_index) -> objID`, bound with `@hooks.GenericLeafPrototype.implement` at import | AS:640-924 |
 | `buildLeafBladeLattice(shape)` | AS:517-638 |
 | `deformLeafLattice(...)` (rigid no-op guard, errors, moment iteration) | AS:37-282 |
 | `petioluleVertexCount`, `petioluleRadialSubdivisions` | AS:24-35 |
-| `resolveTextureFile` | PA:669-711 |
-| `nameOrganMaterials(pa, objID(s), base)` + `OrganMaterial` | PA:181-264 |
-| `getCachedLeafPrototypeObjID`, `recordLeafPrototypeRestGeometry` + `LeafRestGeometry` | PA:4532-4596 |
-| `leafletSizeMax`, `_clamp_offset`, `_distribution_mean` (file-static helpers) | PA:266-323, 4844 |
-| `PhytomerLeafMixin.buildLeafPrototype / labelLeafPrototype / assignPetioluleMaterial` | PA:4904-5014 |
-| `PhytomerLeafMixin.buildLeafPrototypeCache(leaves_per_petiole, leaf_flexibility)` (the constructor block) | PA:3449-3497 |
+| `resolveTextureFile` (called by GenericLeafPrototype) | PA:669-711 |
 
-PlantArchitecture state owned here, created on first use: `unique_leaf_prototype_objIDs`,
-`unique_leaf_prototype_rest_geometry` (both keyed `(identifier, leaves_per_petiole)`), `organ_material_labels`
-(iterated sorted, as the `std::map`).
+The hook draws only from the prototype's RandomParameters, in Helios order (first `val()`s: aspect ratio for Ny,
+roll fraction for validation, then the `LeafShapeValues` fill; trailing resamples: aspect, fold, curvature,
+exponent, lateral, roll, petiole roll, [shape recorded], wave period, wave amplitude), sets
+`last_built_shape(_valid)`, labels the petiolule triangles "petiolule", and returns the polymesh with its face
+set and 180-degree vertex normals.
 
-Not ported (raise `NotImplementedError`): the OBJ-file leaf goes through `Scene.load_obj` but is untested;
-`validateColorTexture` for texture series and `recordSpectralClassMap` for leaf class maps (both off for tomato).
-`bendPetioleCenterline` (AS:284-515) is petiole bending, not in this package.
+Not ported (raise `NotImplementedError`): `validateColorTexture` for texture series and `recordSpectralClassMap`
+for leaf class maps (both off for tomato). The OBJ-file leaf goes through `Scene.load_obj`, untested.
+`bendPetioleCenterline` (AS:284-515) is petiole bending, not in this package. `deformLeafLattice` is ported and
+unit-tested (rigid identity, droop, no stretching, errors) but not oracle-tested: no tomato path reaches it.
 
 ## Float/double choices (each proven by a mutation that the parity cases catch)
 
@@ -45,34 +45,28 @@ libstdc++'s `<cmath>` does not put the float overloads in the global namespace. 
 
 ## Parity cases (`cases_plantarch_leafproto.py`, `ops_plantarch_leafproto.py`). All 0 ulp.
 
+Both sides run `buildPlantInstanceFromLibrary(pos, 0)` (W3-B's real Phytomer on Heliades, with this hook bound;
+the op refuses a stub build).
+
 | case | seeds | checks |
 |---|---|---|
-| `plantarch.leafproto.tomato` | Context 1..8 | the 35 hidden prototypes: UUIDs, object IDs, vertices, normals, areas, colors, UVs, solid fractions, textures, hidden flags, parents, members, centers, transforms |
-| `plantarch.leafproto.tomato_attrs` | Context 1..8 | per primitive: material label, color, texture, two-sided flag, `object_label` and data labels; per object: object data labels, polymesh vertices / normals / UVs / faces / face UUIDs / normal source |
+| `plantarch.tomato.age0_full` (acceptance) | Context 1..8 | the whole age-0 tomato from `snapshot(include_hidden=True)`: all 6412 primitives and 44 objects (tubes, 35 hidden prototypes, 7 leaflet copies): UUIDs, vertices, normals, areas, colors, UVs, solid fractions, textures, hidden flags, parents, members, centers, transforms |
+| `plantarch.tomato.age0_full_attrs` | Context 1..8 | for every polymesh object (prototypes and copies): per primitive material label / color / texture / two-sided flag, `object_label` and data labels; object data labels; polymesh vertices, normals, UVs, faces, face UUIDs, normal source |
+| `plantarch.leafproto.tomato` / `tomato_attrs` | Context 1..8 | the same, restricted to the hidden prototypes |
 | `plantarch.leafproto.edges`, `edges_attrs` | 10 specs | pure fold; fold + exponent < 1; roll only; petiole roll ±; 1 subdivision, odd Ny, no petiolule; per-leaflet petiolule lengths + leaf offset; every shape parameter distributed (private-stream val/resample order); per-leaflet textures (`<base>`, `<base>_1`, ... naming); intercalary leaflets with zero offset |
 | `plantarch.leafproto.fuzz` (12), `fuzz_attrs` (6) | random | curvature (distributed), exponent, lateral, roll (sometimes distributed), fold, petiole roll, wave (amplitude sometimes distributed), subdivisions 1-10, aspect ratio (sometimes distributed), unique prototypes 1-5, leaflets 1/3/5/7, petiolule on/off + length, leaf offset, petiole radius (distributed) and taper, prototype scale |
 
-How the oracle exposes the prototypes: `buildPlantInstanceFromLibrary(pos, 0)` builds the internode tube
-(object 1, UUIDs 0-13), the petiole tube (object 2, UUIDs 14-83), then the 35 hidden blade prototypes
-(objects 3-37, 152 UUIDs each of which 144 survive: 40 blade facets and 104 petiolule facets) and the 7 copies.
-At age 0 the hidden objects of the Context are exactly the blade prototypes (the inflorescence prototypes come
-with the first peduncle), so the cases select them by the hidden flag from `snapshot(include_hidden=True)`.
-
-Heliades side, until W3-B: the identifier comes from `loadPlantModelFromLibrary`; the Context state before the
-cache is reproduced with stand-in internode (14 triangles) and petiole (70 triangles) tubes named with
-`nameOrganMaterials` (`tomato_mainstem_stem` / `tomato_mainstem_petiole`), then `buildLeafPrototypeCache` on a
-phytomer stand-in (`ops_plantarch_leafproto._PhytomerStandIn`). The stand-in tubes are not compared; they only
-fix the UUID/object footprint and the petiole material the petiolules take. W3-B should replace the stand-in
-with the real Phytomer and keep the cases.
+Prototype selection: at age 0 the hidden objects of the Context are exactly the blade prototypes (objects 3-37 for
+tomato, 152 UUIDs each of which 144 survive: 40 blade facets, 104 petiolule facets; the inflorescence prototypes
+only come with the first peduncle), so the prototype-level cases select them by the hidden flag.
 
 Redefinition: Helios goes through the PyHelios JSON round trip; Heliades rebuilds each listed RandomParameter
 with `initialize(gen)` like `jsonToRandomParameterFloat`, and sets scalar fields directly.
 
 Mutation checks (`tests/heliades/test_plantarch_leafproto.py::test_mutations_are_caught`, by re-executing the
-module source with one edit), all caught: the seven float/double/libm choices above, dropping the trailing
-`longitudinal_curvature.resample()` (tomato), moving `wave_amplitude.resample()` first (edges 7), not hiding the
-prototypes, keeping transparent facets, the petiolule keeping its automatic material (attrs), not recording the
-named organ material (attrs: `_1`.. labels), and a petiolule radius that ignores the petiole taper.
+module source with one edit), all caught: the eight float/double/libm choices above, dropping the trailing
+`longitudinal_curvature.resample()` (tomato), moving `wave_amplitude.resample()` first (edges 7), keeping
+transparent facets (tomato), not labelling the petiolule (attrs), a halved petiolule radius (age0_full).
 
 ## Findings / discrepancies
 
@@ -92,24 +86,24 @@ named organ material (attrs: `_1`.. labels), and a petiolule radius that ignores
    `assets/textures/`). When neither cwd nor `$HELIOS_BUILD` holds `plugins/`, it falls back to the pinned
    `third_party/pyhelios_src/helios-core` found by walking up from the package. Textures are compared by basename.
 
+## Differences between my removed Phytomer-side copies and W3-B's (kept W3-B's)
+
+- `recordLeafPrototypeRestGeometry`: W3-B raises `NotImplementedError` for a flexible leaf; mine ported the
+  flexible branch (polymesh vertices minus the frame origin, petiolule vertices split off, Ny recovered from the
+  vertex count). Needed before any flexible species; the code is in this branch's history (commit "W3-A WIP").
+- `buildLeafPrototype`: W3-B's defaults for `leaflet_size_own` etc. are `0.0`, the C++ ones `-1.f`; equivalent,
+  since every use tests `> 0`.
+- `OrganMaterial` in W3-B has no normal-map fields; the core material table has none, so identical in effect.
+- Otherwise the same code path; W3-B's versions pass every case here, including the per-leaflet texture naming.
+
 ## Requests for core (not done)
 
 - `Scene.translate_primitive` returns early on a zero shift; Helios's `translatePrimitive(vector, shift)` always
   multiplies. Identical up to the sign of zero entries (not observable); left as is.
 - Normal-map fields on `Material` are not modelled; `nameOrganMaterials` treats them as the defaults.
 
-## What W3-B needs (placing a leaf)
+## For later packages
 
-- Make `Phytomer` inherit `PhytomerLeafMixin` and give it `context_ptr`, `plantarchitecture_ptr`,
-  `phytomer_parameters`, `parent_shoot_ptr.shoot_type_label`, `petiole_objIDs`, `plantID`; give
-  `PlantArchitecture` `plant_instances[plantID].plant_name` (the build name, `"tomato"`).
-- In the constructor, after the petiole tube is built and named: `self.buildLeafPrototypeCache(leaves_per_petiole,
-  leaf_flexibility)` (PA:3452-3497; it builds only on a cache miss and returns whether it did).
-- Per leaflet (PA:3499-3512): `p = ctx.randu(0, unique_prototypes - 1)`;
-  `oid = ctx.copy_object(getCachedLeafPrototypeObjID(pa, identifier, leaves_per_petiole, p, leaf, "PlantArchitecture::Phytomer"))`;
-  then `nameOrganMaterials(pa, oid, f"{plant_name}_{shoot_type_label}_leaf")`, scale/orient/translate.
-  With `unique_prototypes == 0`: `self.buildLeafPrototype(leaves_per_petiole, ind_from_tip)` (+ `recordBuiltLeafShape`,
-  W3-B).
-- `nameOrganMaterials(pa, objID, base)` is also what the internode (`_stem`) and petiole (`_petiole`) tubes need.
-- `pa.unique_leaf_prototype_rest_geometry[key][p][l]` holds the rest shape (`.shape`, `.lattice_frame_offset`,
-  and the lattice when the leaf is flexible) for `deformLeafLattice`.
+- `GenericLeafPrototype` is all the Phytomer needs; it is bound when `leaf_prototype` is imported.
+- `deformLeafLattice(rest_lattice, Nx, Ny, scale, mature_scale, flexibility, taper, gravity)` is ready for flexible
+  leaves once `recordLeafPrototypeRestGeometry` records the lattice.

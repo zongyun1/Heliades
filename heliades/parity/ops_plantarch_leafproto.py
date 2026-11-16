@@ -1,27 +1,18 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 """Leaf-prototype operations for both backends (W3-A).
 
-``plantarch_leafproto_build`` builds the tomato leaf prototype cache the way the tomato path does:
-
-* Helios: ``buildPlantInstanceFromLibrary(pos, 0)``. The first Phytomer builds its internode tube (object 1,
-  UUIDs 0-13), its petiole tube (object 2, UUIDs 14-83), then the hidden blade prototypes (objects 3.., in
-  prototype-major, leaflet-minor order), then the visible leaflet copies. The prototypes are exactly the
-  hidden objects of the Context at age 0 (the inflorescence prototypes only appear with the first
-  peduncle), so they are found by their hidden flag, not by position.
-* Heliades: the same Context state up to the cache, reproduced with the public Scene API until W3-B lands:
-  the identifier from ``loadPlantModelFromLibrary``, a stand-in internode tube (7 radial subdivisions, 2
-  nodes: 14 triangles, labelled "shoot", material ``tomato_mainstem_stem``) and petiole tube (6 nodes: 70
-  triangles, labelled "petiole", material ``tomato_mainstem_petiole`` in the petiole color), then
-  :meth:`PhytomerLeafMixin.buildLeafPrototypeCache` on a phytomer stand-in. The stand-in tubes are never
-  compared; only their UUID/object-ID footprint and the petiole material label matter to the prototypes.
+``plantarch_leafproto_build`` is ``buildPlantInstanceFromLibrary(pos, 0)`` on both sides (W3-B's Phytomer with
+the W3-A ``GenericLeafPrototype`` bound). The first Phytomer builds its internode tube (object 1, UUIDs 0-13),
+its petiole tube (object 2, UUIDs 14-83), the hidden blade prototypes (objects 3.., prototype-major,
+leaflet-minor), then the visible leaflet copies. At age 0 the prototypes are exactly the hidden objects of the
+Context (the inflorescence prototypes only come with the first peduncle), so they are selected by the hidden
+flag, not by position.
 
 ``plantarch_leafproto_redefine`` edits the mainstem leaf prototype (and petiole) through the PyHelios JSON
 round trip on Helios and through the ported structs on Heliades (each RandomParameter rebuilt with
 ``initialize(gen)``, as the wrapper's ``jsonToRandomParameterFloat`` does).
 """
 from __future__ import annotations
-
-from types import SimpleNamespace
 
 import numpy as np
 
@@ -30,54 +21,20 @@ from .ops import op
 f32 = np.float32
 
 
-# ---- build ---------------------------------------------------------------------------------------
+# ---- build ----------------------------------------------------------------------------------------
 
 @op("plantarch_leafproto_build", "helios")
 def _(B):
     B.plantarch_build((0.0, 0.0, 0.0), 0.0)
 
 
-class _PhytomerStandIn:
-    """Only the members PhytomerLeafMixin reads (see leaf_prototype module docstring)."""
-
-    def __init__(self, pa, shoot_type_label, petiole_objIDs, plantID=0):
-        from ..plantarchitecture.leaf_prototype import PhytomerLeafMixin
-        self.__class__ = type("_Phytomer", (_PhytomerStandIn, PhytomerLeafMixin), {})
-        self.context_ptr = pa.context_ptr
-        self.plantarchitecture_ptr = pa
-        sp = pa.shoot_types[shoot_type_label].copy()        # Shoot's copy -> Phytomer's own copy (no draws)
-        self.phytomer_parameters = sp.phytomer_parameters.copy()
-        self.parent_shoot_ptr = SimpleNamespace(shoot_type_label=shoot_type_label)
-        self.petiole_objIDs = list(petiole_objIDs)
-        self.plantID = plantID
-
-
-def heliades_tomato_prototype_cache(pa, plant_name="tomato", shoot_type_label="mainstem"):
-    """The Context state of the tomato path up to the blade cache, then the cache itself (see module doc)."""
-    from ..plantarchitecture.leaf_prototype import nameOrganMaterials
-    from ..plantarchitecture.library.tomato import base_rotation_draws
-    sc = pa.context_ptr
-    if not hasattr(pa, "plant_instances"):
-        pa.plant_instances = {0: SimpleNamespace(plant_name=plant_name)}
-    base_rotation_draws(pa)
-    pp = pa.shoot_types[shoot_type_label].phytomer_parameters
-    ic, pc = pp.internode.color, pp.petiole.color
-    stem = sc.add_tube_object(7, [(0, 0, 0), (0, 0, 0.004)], [0.001, 0.001], [ic, ic])
-    sc.set_primitive_data(sc.object_primitive_uuids(stem), "object_label", "shoot")
-    nameOrganMaterials(pa, stem, f"{plant_name}_{shoot_type_label}_stem")
-    nodes = [(0, 0, 0.004 + 0.01 * k) for k in range(6)]
-    petiole = sc.add_tube_object(7, nodes, [0.002 * (1 - 0.14 * k) for k in range(6)], [pc] * 6)
-    sc.set_primitive_data(sc.object_primitive_uuids(petiole), "object_label", "petiole")
-    nameOrganMaterials(pa, petiole, f"{plant_name}_{shoot_type_label}_petiole")
-    ph = _PhytomerStandIn(pa, shoot_type_label, [petiole])
-    nleaf = int(ph.phytomer_parameters.leaf.leaves_per_petiole.val())
-    ph.buildLeafPrototypeCache(nleaf, ph.phytomer_parameters.leaf.prototype.resolveFlexibility())
-    return ph
-
-
 @op("plantarch_leafproto_build", "heliades")
 def _(B):
-    return heliades_tomato_prototype_cache(B.pa)
+    from ..plantarchitecture import leaf_prototype  # noqa: F401  (binds hooks.GenericLeafPrototype)
+    pid = B.plantarch_build((0.0, 0.0, 0.0), 0.0)
+    if getattr(B.pa, "leaf_geometry_is_stub", False):
+        raise RuntimeError("the age-0 build used the stub leaf prototype")
+    return pid
 
 
 # ---- observations of the prototype objects --------------------------------------------------------

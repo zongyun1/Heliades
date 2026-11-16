@@ -1,41 +1,37 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Ported from Helios plugins/plantarchitecture/src/Assets.cpp:24-282, 517-924 and
 # src/PlantArchitecture.cpp:181-276, 3449-3497, 4532-4596, 4844-5014 (Copyright (C) 2016-2026 Brian Bailey).
-"""Leaf blade prototypes (W3-A): ``GenericLeafPrototype`` and the per-shoot-type prototype cache.
+"""Leaf blade geometry (W3-A): ``GenericLeafPrototype``, ``buildLeafBladeLattice``, ``deformLeafLattice``.
+
+``GenericLeafPrototype(scene, prototype, compound_leaf_index) -> objID`` is bound to
+``hooks.GenericLeafPrototype`` when this module is imported (``phytomer.py`` imports it lazily). It draws only
+from ``prototype``'s RandomParameters (the private ``minstd_rand0(identifier)`` during the cache build, which the
+Phytomer installs), in Helios's order including the trailing resamples, records ``last_built_shape``, labels the
+petiolule "petiolule" and returns the polymesh. The Phytomer side (buildLeafPrototype, labelLeafPrototype,
+assignPetioluleMaterial, the cache, nameOrganMaterials) is W3-B's, in ``phytomer.py``.
 
 Every float expression follows its C++ type, operation by operation:
 
 * ``f``-suffixed libm calls (``sinf``, ``cosf``, ``atanf``, ``powf``, ``atan2f``, ``remainderf``, ``hypotf``)
   go through glibc with ctypes, because glibc's float functions are not correctly rounded;
 * unsuffixed calls on a float argument (``atan`` in the longitudinal curvature, ``exp``/``fmin``/``fabs`` in the
-  petiole roll and the wave) are the C ``double`` functions (no ``using namespace std`` in Helios, and the
-  translation unit only sees ``::atan(double)`` etc.), so they are evaluated in double and narrowed on
-  assignment. Each choice is pinned by a parity probe (``plantarch.leafproto.*``, notes/W3-A.md);
+  petiole roll and the wave) are the C ``double`` functions (no ``using namespace std`` reaches Assets.cpp), so
+  they are evaluated in double and narrowed on assignment. Each choice is pinned by a mutation that the parity
+  cases catch (notes/W3-A.md);
 * ``float * M_PI`` is a double product.
-
-The Phytomer members ported here (``buildLeafPrototype``, ``labelLeafPrototype``, ``assignPetioluleMaterial`` and
-the cache block of the constructor) live in :class:`PhytomerLeafMixin`, which needs these attributes on the
-phytomer (the same names as the C++ members):
-
-``context_ptr`` (Scene), ``plantarchitecture_ptr`` (PlantArchitecture), ``phytomer_parameters``
-(PhytomerParameters), ``parent_shoot_ptr`` (anything with ``shoot_type_label``), ``petiole_objIDs`` (list of
-object IDs), ``plantID``; and on the PlantArchitecture ``plant_instances[plantID].plant_name``.
 """
 from __future__ import annotations
 
 import ctypes
 import ctypes.util
 import math
-from dataclasses import dataclass, field
-
 import numpy as np
 
 from ..core import vec as V
-from ..core.random import MinstdRand0
 from ..core.texture import try_resolve_file_path
 from ..migration_registry import ports
 from . import hooks
-from .params import LeafShapeValues, vec3
+from .params import LeafShapeValues
 from .random_parameter import PlantArchitectureError
 
 f32 = np.float32
@@ -450,6 +446,7 @@ def resolveTextureFile(texture_file: str) -> str:
 
 # ---- GenericLeafPrototype (AS:640-924) ---------------------------------------------------------------------
 
+@hooks.GenericLeafPrototype.implement
 @ports("GenericLeafPrototype")
 def GenericLeafPrototype(context_ptr, prototype_parameters, compound_leaf_index: int) -> int:
     """Build one leaf prototype polymesh (textured blade + optional petiolule) and return its object ID."""
@@ -666,318 +663,5 @@ def _translate_primitives(ctx, uuids, shift):
         ctx.translate_primitive(u, shift)
 
 
-# ---- PlantArchitecture members (PA:181-276, 4532-4596) -----------------------------------------------------
-
-@dataclass
-class OrganMaterial:
-    """PlantArchitecture::OrganMaterial (H:6707). Normal maps are not modelled by the Heliades material
-    table, so their fields keep the defaults on both sides of every comparison."""
-    label: str
-    color: tuple
-    texture_file: str = ""
-    texture_color_overridden: bool = False
-    normal_map_file: str = ""
-    normal_map_kind: int = 0
-    normal_map_strength: np.float32 = f32(1)
-    normal_map_flip_green: bool = False
-
-
-@dataclass
-class LeafRestGeometry:
-    """PlantArchitecture::LeafRestGeometry (H:6643)."""
-    vertices: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), f32))
-    appended_vertices: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), f32))
-    subdivisions_x: int = 0
-    subdivisions_y: int = 0
-    shape: LeafShapeValues = field(default_factory=LeafShapeValues)
-    has_shape: bool = False
-    lattice_frame_offset: np.ndarray = field(default_factory=lambda: np.zeros(3, f32))
-
-
-def _pa_state(pa):
-    """The PlantArchitecture members this module owns (created on first use)."""
-    for name, default in (("unique_leaf_prototype_objIDs", dict), ("unique_leaf_prototype_rest_geometry", dict),
-                          ("organ_material_labels", dict)):
-        if not hasattr(pa, name):
-            setattr(pa, name, default())
-    return pa
-
-
-@ports("PlantArchitecture::nameOrganMaterials")
-def nameOrganMaterials(pa, objIDs, desired_base_name: str):
-    """Give the organ's automatic materials the label ``desired_base_name`` (or a suffixed one), sharing
-    a material already named for organs of the same kind and appearance (PA:181-264). ``objIDs`` may be one ID
-    or a list (the vector overload)."""
-    _pa_state(pa)
-    if not np.isscalar(objIDs):
-        for o in objIDs:
-            nameOrganMaterials(pa, o, desired_base_name)
-        return
-    ctx = pa.context_ptr
-    labels = pa.organ_material_labels
-    prims_of_auto: dict[str, list[int]] = {}
-    for u in ctx.object_primitive_uuids(int(objIDs)):
-        lbl = ctx.get_primitive_material_label(u)
-        if lbl[:7] == "__auto_":
-            prims_of_auto.setdefault(lbl, []).append(u)
-
-    for automatic_label in sorted(prims_of_auto):          # std::map iteration order
-        primitives = prims_of_auto[automatic_label]
-        key = (automatic_label, desired_base_name)
-        named = labels.get(key)
-        if named is not None and ctx.does_material_exist(named.label):
-            ctx.assign_material_to_primitive(primitives, named.label)
-            continue
-        automatic = ctx.get_material(ctx.get_primitive_material_id(primitives[0]))
-        a_color = np.asarray(automatic.color, f32)
-        a_tex = automatic.texture_file or ""
-        a_over = bool(automatic.texture_color_overridden)
-
-        same = None
-        for other_key in sorted(labels):
-            other = labels[other_key]
-            if (other_key[1] != desired_base_name or not ctx.does_material_exist(other.label) or other.texture_file != a_tex
-                    or other.texture_color_overridden != a_over or other.normal_map_file != ""
-                    or other.normal_map_kind != 0 or other.normal_map_strength != f32(1) or other.normal_map_flip_green):
-                continue
-            oc = np.asarray(other.color, f32)
-            if all(abs(f32(oc[c] - a_color[c])) < f32(1e-4) for c in range(4)):
-                same = other
-                break
-        if same is not None:
-            ctx.assign_material_to_primitive(primitives, same.label)
-            labels[key] = same
-            continue
-
-        label = desired_base_name
-        suffix = 1
-        while ctx.does_material_exist(label):
-            label = f"{desired_base_name}_{suffix}"
-            suffix += 1
-        if automatic.reference_count == len(primitives):
-            ctx.rename_material(automatic_label, label)
-        else:
-            ctx.add_material(label)
-            ctx.set_material_color(label, a_color)
-            if a_tex:
-                ctx.set_material_texture(label, a_tex)
-            ctx.set_material_texture_color_override(label, a_over)
-            ctx.set_material_twosided_flag(label, automatic.twosided_flag)
-            ctx.assign_material_to_primitive(primitives, label)
-        labels[key] = OrganMaterial(label, tuple(a_color), a_tex, a_over)
-
-
-@ports("PlantArchitecture::getCachedLeafPrototypeObjID")
-def getCachedLeafPrototypeObjID(pa, prototype_identifier, leaves_per_petiole, prototype_index, leaf_index,
-                                calling_function: str) -> int:
-    _pa_state(pa)
-    cached = pa.unique_leaf_prototype_objIDs.get((int(prototype_identifier), int(leaves_per_petiole)))
-    if cached is None:
-        raise PlantArchitectureError(f"ERROR ({calling_function}): No leaf blade prototypes have been cached for a petiole of "
-                                     f"{leaves_per_petiole} leaflets. The cached blades of a leaf prototype are built for one "
-                                     "leaflet count at a time, and this count was never built.")
-    elif len(cached) <= prototype_index:
-        raise PlantArchitectureError(f"ERROR ({calling_function}): Leaf prototype {prototype_index} was requested, but only "
-                                     f"{len(cached)} unique leaf prototypes were cached for a petiole of {leaves_per_petiole} "
-                                     "leaflets.")
-    elif len(cached[prototype_index]) <= leaf_index:
-        raise PlantArchitectureError(f"ERROR ({calling_function}): Leaflet {leaf_index} was requested, but the cached leaf "
-                                     f"prototype holds blades for only {len(cached[prototype_index])} leaflet positions of a "
-                                     f"petiole of {leaves_per_petiole} leaflets.")
-    return cached[prototype_index][leaf_index]
-
-
-@ports("PlantArchitecture::recordLeafPrototypeRestGeometry")
-def recordLeafPrototypeRestGeometry(pa, prototype_params, leaves_per_petiole, prototype_index, objID_leaf,
-                                    leaf_flexibility):
-    _pa_state(pa)
-    ctx = pa.context_ptr
-    rg = LeafRestGeometry()
-    rg.has_shape = bool(prototype_params.last_built_shape_valid)
-    if rg.has_shape:
-        rg.shape = prototype_params.last_built_shape.copy()
-    T = ctx.object_transform(objID_leaf)
-    origin = _v3(T[3], T[7], T[11])
-    rg.lattice_frame_offset = origin
-    if f32(leaf_flexibility) > f32(0):
-        verts = [_vsub(v, origin) for v in ctx.polymesh_object_vertices(objID_leaf)]
-        n_pet = petioluleVertexCount()
-        if prototype_params.build_petiolule and len(verts) > n_pet:
-            rg.appended_vertices = np.array(verts[-n_pet:], f32).reshape(-1, 3)
-            verts = verts[:-n_pet]
-        rg.subdivisions_x = int(prototype_params.subdivisions)
-        if rg.subdivisions_x > 0 and len(verts) % (rg.subdivisions_x + 1) == 0:
-            rg.subdivisions_y = len(verts) // (rg.subdivisions_x + 1) - 1
-            rg.vertices = np.array(verts, f32).reshape(-1, 3)
-        else:
-            rg.vertices = np.zeros((0, 3), f32)
-            rg.appended_vertices = np.zeros((0, 3), f32)
-            rg.subdivisions_x = 0
-    key = (int(prototype_params.unique_prototype_identifier), max(int(leaves_per_petiole), 0))
-    pa.unique_leaf_prototype_rest_geometry[key][prototype_index].append(rg)
-
-
-# ---- Phytomer members ----------------------------------------------------------------------------------
-
-def _distribution_mean(parameter) -> np.float32:
-    """static distributionMean (PA:4844): mean of uniform/normal/weibull, else ``val()`` (no draw for a constant)."""
-    d, p = parameter.distribution, parameter.distribution_parameters
-    if d == "uniform":
-        return f32(f32(0.5) * f32(p[0] + p[1]))
-    elif d == "normal":
-        return f32(p[0])
-    elif d == "weibull":
-        return f32(f32(p[1]) * f32(math.gamma(float(f32(f32(1) + f32(f32(1) / f32(p[0])))))))   # std::tgamma(float)
-    return parameter.val()
-
-
-def _clamp_offset(count_per_axis: int, offset) -> np.float32:
-    """static clampOffset (PA:266)."""
-    offset = f32(offset)
-    if count_per_axis > 2:
-        denom = f32(f32(f32(0.5) * f32(count_per_axis)) - f32(1))
-        if f32(offset * denom) > f32(1):
-            offset = f32(f32(1) / denom)
-    return offset
-
-
-@ports("leafletSizeMax")
-def leafletSizeMax(ind_from_tip, leaflet_scale, intercalary_leaflet_scale, prototype_scale) -> np.float32:
-    """static leafletSizeMax (PA:309-323)."""
-    slot = abs(f32(ind_from_tip))
-    leaflet_scale, intercalary_leaflet_scale, prototype_scale = f32(leaflet_scale), f32(intercalary_leaflet_scale), f32(prototype_scale)
-    if slot == f32(0) or leaflet_scale == f32(1):
-        return prototype_scale
-    if intercalary_leaflet_scale <= f32(0):
-        return f32(powf(leaflet_scale, slot) * prototype_scale)
-    pair_index = int(math.ceil(slot))
-    size = f32(powf(leaflet_scale, f32((pair_index + 1) // 2)) * prototype_scale)
-    return f32(intercalary_leaflet_scale * size) if pair_index % 2 == 0 else size
-
-
-class PhytomerLeafMixin:
-    """Phytomer methods of the leaf prototype path (PA:3449-3497, 4904-5014). See the module docstring for the
-    attributes they need."""
-
-    @ports("Phytomer::buildLeafPrototype")
-    def buildLeafPrototype(self, leaves_per_petiole: int, ind_from_tip, prototype_index: int = 0,
-                           leaflet_size_own=-1.0, petiole_radius_own=-1.0, petiolule_length_own=-1.0) -> int:
-        pa = self.plantarchitecture_ptr
-        prototype = self.phytomer_parameters.leaf.prototype
-        shoot_type_label = self.parent_shoot_ptr.shoot_type_label
-        ind_from_tip = f32(ind_from_tip)
-        leaflet_size_own, petiole_radius_own = f32(leaflet_size_own), f32(petiole_radius_own)
-        petiolule_length_own = f32(petiolule_length_own)
-
-        prototype.validateTextureSeries(shoot_type_label)
-        prototype.texture_series_selector = prototype_index
-
-        if prototype.build_petiolule and leaflet_size_own > f32(0) and petiole_radius_own > f32(0):
-            prototype.petiolule_radius_fraction = f32(petiole_radius_own / leaflet_size_own)
-        elif prototype.build_petiolule:
-            if shoot_type_label not in pa.shoot_types:
-                raise PlantArchitectureError(f"ERROR (PlantArchitecture::Phytomer::buildLeafPrototype): Shoot type "
-                                             f"'{shoot_type_label}' is not defined, but its leaf prototype builds a petiolule whose "
-                                             "radius is taken from the shoot type's petiole.")
-            tp = pa.shoot_types[shoot_type_label].phytomer_parameters
-            attachment_fraction = f32(1)
-            leaflet_offset_val = _clamp_offset(int(leaves_per_petiole), _distribution_mean(tp.leaf.leaflet_offset))
-            if leaves_per_petiole > 1 and leaflet_offset_val > f32(0) and ind_from_tip != f32(0):
-                attachment_fraction = f32(f32(1) - f32(f32(abs(ind_from_tip) - f32(0.5)) * leaflet_offset_val))
-            petiole_radius = f32(_distribution_mean(tp.petiole.radius)
-                                 * f32(f32(1) - f32(_distribution_mean(tp.petiole.taper) * attachment_fraction)))
-            leaflet_size = leafletSizeMax(ind_from_tip, _distribution_mean(tp.leaf.leaflet_scale),
-                                          _distribution_mean(tp.leaf.intercalary_leaflet_scale),
-                                          _distribution_mean(tp.leaf.prototype_scale))
-            if petiole_radius <= f32(0) or leaflet_size <= f32(0):
-                raise PlantArchitectureError(f"ERROR (PlantArchitecture::Phytomer::buildLeafPrototype): The leaf prototype of shoot "
-                                             f"type '{shoot_type_label}' builds a petiolule, whose radius is taken from the petiole, "
-                                             f"but the petiole radius ({petiole_radius:f} m) or leaflet size ({leaflet_size:f} m) is "
-                                             "not positive. Give the petiole a radius or set build_petiolule to false.")
-            prototype.petiolule_radius_fraction = f32(petiole_radius / leaflet_size)
-
-        petiolule_length_species = dict(prototype.petiolule_length)
-        own_stalk = prototype.build_petiolule and petiolule_length_own > f32(0) and leaflet_size_own > f32(0)
-        if own_stalk:
-            prototype.petiolule_length = {0: f32(petiolule_length_own / leaflet_size_own)}
-
-        prototype.last_built_shape_valid = False
-        objID_leaf = prototype.prototype_function(self.context_ptr, prototype, int(ind_from_tip))
-        if own_stalk:
-            prototype.petiolule_length = petiolule_length_species
-        self.last_built_leaf_shape_valid = bool(prototype.last_built_shape_valid)
-        if self.last_built_leaf_shape_valid:
-            self.last_built_leaf_shape = prototype.last_built_shape.copy()
-        return objID_leaf
-
-    @ports("Phytomer::labelLeafPrototype")
-    def labelLeafPrototype(self, objID_leaf: int):
-        ctx = self.context_ptr
-        if self.phytomer_parameters.leaf.prototype.prototype_function is hooks.GenericLeafPrototype:
-            object_UUIDs = ctx.object_primitive_uuids(objID_leaf)
-            keep = set(ctx.filter_primitives_by_data(object_UUIDs, "object_label", "petiolule"))
-            blade_UUIDs = [u for u in object_UUIDs if u not in keep]
-            if blade_UUIDs:
-                ctx.set_primitive_data(blade_UUIDs, "object_label", "leaf")
-        self.assignPetioluleMaterial(objID_leaf)
-
-    @ports("Phytomer::assignPetioluleMaterial")
-    def assignPetioluleMaterial(self, objID_leaf: int):
-        ctx = self.context_ptr
-        pa = self.plantarchitecture_ptr
-        petiolule_UUIDs = ctx.filter_primitives_by_data(ctx.object_primitive_uuids(objID_leaf), "object_label", "petiolule")
-        if not petiolule_UUIDs:
-            return
-        material_label = ""
-        for objID_petiole in self.petiole_objIDs:
-            if ctx.does_object_exist(objID_petiole) and ctx.object_primitive_uuids(objID_petiole):
-                material_label = ctx.get_primitive_material_label(ctx.object_primitive_uuids(objID_petiole)[0])
-                break
-        if not material_label:
-            _pa_state(pa)
-            material_label = (pa.plant_instances[self.plantID].plant_name + "_" + self.parent_shoot_ptr.shoot_type_label
-                              + "_petiole")
-            if not ctx.does_material_exist(material_label):
-                c = self.phytomer_parameters.petiole.color
-                rgba = (f32(c[0]), f32(c[1]), f32(c[2]), f32(1))
-                ctx.add_material(material_label)
-                ctx.set_material_color(material_label, rgba)
-                pa.organ_material_labels[("", material_label)] = OrganMaterial(material_label, rgba, "", False)
-        ctx.assign_material_to_primitive(petiolule_UUIDs, material_label)
-
-    @ports("Phytomer::Phytomer (leaf prototype cache, PA:3449-3497)")
-    def buildLeafPrototypeCache(self, leaves_per_petiole: int, leaf_flexibility=0.0) -> bool:
-        """Build the hidden blade prototypes of ``(identifier, leaves_per_petiole)`` from the private stream if
-        they are not cached yet. Returns whether it built them."""
-        pa = _pa_state(self.plantarchitecture_ptr)
-        ctx = self.context_ptr
-        proto = self.phytomer_parameters.leaf.prototype
-        assert proto.unique_prototype_identifier != 0
-        key = (int(proto.unique_prototype_identifier), max(int(leaves_per_petiole), 0))
-        if not (proto.unique_prototypes > 0 and key not in pa.unique_leaf_prototype_objIDs):
-            return False
-        n = int(proto.unique_prototypes)
-        pa.unique_leaf_prototype_objIDs[key] = [[] for _ in range(n)]
-        pa.unique_leaf_prototype_rest_geometry[key] = [[] for _ in range(n)]
-
-        prototype_generator = MinstdRand0(proto.unique_prototype_identifier)
-        context_generator = proto.setRandomGenerator(prototype_generator)
-        material_base_name = (pa.plant_instances[self.plantID].plant_name + "_" + self.parent_shoot_ptr.shoot_type_label
-                              + "_leaf")
-        for prototype in range(n):
-            for leaf in range(int(leaves_per_petiole)):
-                ind_from_tip = f32(f32(leaf) - f32(f32(leaves_per_petiole - 1) / f32(2)))
-                objID_leaf = self.buildLeafPrototype(leaves_per_petiole, ind_from_tip, prototype)
-                self.labelLeafPrototype(objID_leaf)
-                pa.unique_leaf_prototype_objIDs[key][prototype].append(objID_leaf)
-                recordLeafPrototypeRestGeometry(pa, proto, leaves_per_petiole, prototype, objID_leaf, leaf_flexibility)
-                nameOrganMaterials(pa, objID_leaf, material_base_name)
-                ctx.hide_object(objID_leaf)
-        proto.setRandomGenerator(context_generator)
-        return True
-
-
 __all__ = ["GenericLeafPrototype", "buildLeafBladeLattice", "deformLeafLattice", "petioluleVertexCount",
-           "petioluleRadialSubdivisions", "resolveTextureFile", "nameOrganMaterials", "getCachedLeafPrototypeObjID",
-           "recordLeafPrototypeRestGeometry", "leafletSizeMax", "PhytomerLeafMixin", "OrganMaterial", "LeafRestGeometry",
-           "vec3"]
+           "petioluleRadialSubdivisions", "resolveTextureFile"]

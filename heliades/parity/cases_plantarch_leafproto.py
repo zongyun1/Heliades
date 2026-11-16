@@ -17,6 +17,9 @@ by the dropped transparent facets are checked too.
   basename and two-sided flag, the ``object_label`` primitive data and the data label list; per prototype
   object its object data labels and the polymesh face set (vertices, vertex normals, UVs, faces, face
   UUIDs, normal source). Strings are encoded as their bytes.
+* ``plantarch.tomato.age0_full`` / ``age0_full_attrs``: acceptance, the whole age-0 tomato
+  (``buildPlantInstanceFromLibrary``) with every primitive and object, hidden or not, and the attributes of
+  every polymesh object (prototypes and the 7 leaflet copies).
 * ``plantarch.leafproto.fuzz`` / ``fuzz_attrs``: the mainstem leaf prototype redefined through
   ``getCurrentShootParameters``/``defineShootType`` (PyHelios JSON on Helios, the ported structs on Heliades):
   curvature (distributed, with exponents below 1), lateral curvature, roll, fold, petiole roll, wave,
@@ -95,6 +98,29 @@ def _attrs(B, sub):
 @case("plantarch.leafproto.tomato", tier="ulp", max_ulp=0, fuzz=8)
 def leafproto_tomato(B, s):
     return _build(B, s)
+
+
+@case("plantarch.tomato.age0_full", tier="ulp", max_ulp=0, fuzz=8)
+def tomato_age0_full(B, s):
+    """Acceptance: the whole age-0 tomato, every primitive and object, hidden prototypes included."""
+    B.seed(_seed(s))
+    B.plantarch_new()
+    B.plantarch_load("tomato")
+    B.plantarch_leafproto_build()
+    return B.plantarch_leafproto_snapshot()
+
+
+@case("plantarch.tomato.age0_full_attrs", tier="exact", fuzz=8)
+def tomato_age0_full_attrs(B, s):
+    """Material label / color / texture / two-sided flag and primitive data of every primitive, object data and
+    polymesh face sets of every polymesh object (blade prototypes and leaflet copies)."""
+    B.seed(_seed(s))
+    B.plantarch_new()
+    B.plantarch_load("tomato")
+    B.plantarch_leafproto_build()
+    snap = B.plantarch_leafproto_snapshot()
+    polys = [int(o) for o, t in zip(snap.objects.oid, snap.objects.type) if t == 5]
+    return encode_attrs(B.plantarch_leafproto_attrs(polys))
 
 
 @case("plantarch.leafproto.tomato_attrs", tier="exact", fuzz=8)

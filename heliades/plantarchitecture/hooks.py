@@ -17,22 +17,17 @@ from __future__ import annotations
 
 
 class Hook:
-    __slots__ = ("name", "impl", "lazy")
+    __slots__ = ("name", "impl")
 
-    def __init__(self, name: str, lazy: str | None = None):
+    def __init__(self, name: str):
         self.name = name
         self.impl = None
-        self.lazy = lazy          # "module:function" bound on first call (avoids an import cycle with params)
 
     def implement(self, fn):
         self.impl = fn
         return fn
 
     def __call__(self, *a, **k):
-        if self.impl is None and self.lazy:
-            import importlib
-            mod, fn = self.lazy.split(":")
-            self.impl = getattr(importlib.import_module(mod), fn)
         if self.impl is None:
             raise NotImplementedError(f"{self.name} is not ported yet (bind it with {self.name}.implement(fn))")
         return self.impl(*a, **k)
@@ -42,8 +37,7 @@ class Hook:
 
 
 # ---- Assets.cpp -----------------------------------------------------------------------------------
-GenericLeafPrototype = Hook("GenericLeafPrototype",               # AS:640 (W3-A)
-                            lazy="heliades.plantarchitecture.leaf_prototype:GenericLeafPrototype")
+GenericLeafPrototype = Hook("GenericLeafPrototype")              # AS:640 (W3-A)
 TomatoFlowerPrototype = Hook("TomatoFlowerPrototype")            # AS:4080 (W3-D)
 TomatoFruitPrototype = Hook("TomatoFruitPrototype")              # AS:4087 (W3-D)
 TomatoPhytomerCreationFunction = Hook("TomatoPhytomerCreationFunction")   # AS:4092 (W3-B)

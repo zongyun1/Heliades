@@ -2,12 +2,12 @@
 # Ported from Helios core (Context_fileIO.cpp, Context.cpp polymesh accessors; Copyright (C) 2016-2026 Brian Bailey).
 """File IO: loadOBJ (and later PLY/XML), plus the polymesh topology accessors it needs. Mixed into Scene.
 
-Materials: Helios 1.3.98 reads a primitive's color, texture file and texture-color override from its
-material. Heliades has no material system yet (``materials.py`` is being written separately), so
-loadOBJ keeps a minimal label registry here (``Scene._fileio_materials``) and writes the material's
-observable effect straight onto the primitive: ``color`` (RGB + alpha 1), ``texture_file``,
-``solid_fraction`` when the texture changes, plus ``material_label`` and ``texture_color_overridden``
-attributes. Fold the registry into the real material system once it exists.
+Materials: loadOBJ goes through the Context material table (``MaterialsMixin``, materials.py) exactly
+as Helios 1.3.98 does. Each MTL material becomes a named material (``addMaterial``, a ``_k`` suffix on a
+label collision, then ``setMaterialColor`` / ``setMaterialTexture`` / ``setMaterialTextureColorOverride``).
+Each triangle is created with its automatic material (``setPrimitiveColor`` + ``overridePrimitiveTextureColor``
+first for a map_d-only material), and is then assigned its named material when that label exists in the
+Context, so the automatic materials made on the way consume material IDs as in Helios.
 """
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ from ..migration_registry import ports
 
 f32 = np.float32
 
-_DEFAULT_MATERIAL_LABEL = "__default__"
 _OBJECT_POLYMESH = 5
 MIN_TRIANGLE_AREA_THRESHOLD = f32(1e-8)
 DEFAULT_IMPORT_CREASE_ANGLE_DEGREES = f32(180)
@@ -27,52 +26,6 @@ _BLUE = (0.0, 0.0, 1.0)
 
 
 class FileIOMixin:
-
-    # ---- minimal material registry (see module docstring) --------------------------------------
-    def _mat_registry(self) -> dict:
-        reg = getattr(self, "_fileio_materials", None)
-        if reg is None:
-            reg = {_DEFAULT_MATERIAL_LABEL: dict(color=np.array([0, 0, 0, 1], f32), texture="", override=False)}
-            self._fileio_materials = reg
-        return reg
-
-    def _fileio_does_material_exist(self, label: str) -> bool:
-        return label in self._mat_registry()
-
-    def _fileio_add_material(self, label: str):
-        if not label:
-            raise ValueError("ERROR (Context::addMaterial): Material label cannot be empty.")
-        if label[:2] == "__" and label != _DEFAULT_MATERIAL_LABEL:
-            raise ValueError("ERROR (Context::addMaterial): Material labels starting with '__' are reserved for internal use.")
-        self._mat_registry()[label] = dict(color=np.array([0, 0, 0, 1], f32), texture="", override=False)
-
-    def _fileio_assign_material(self, uuid: int, label: str):
-        """assignMaterialToPrimitive: the primitive now shows the material's color/texture/override;
-        a texture change recomputes the solid fraction (updatePrimitiveSolidFraction)."""
-        m = self._mat_registry()[label]
-        p = self.primitives[uuid]
-        old_tex = p.texture_file or ""
-        p.color = m["color"].copy()
-        p.texture_file = m["texture"] or None
-        p.texture_color_overridden = m["override"]
-        p.material_label = label
-        if old_tex != m["texture"]:
-            if not m["texture"]:
-                p.solid_fraction = f32(1)
-            else:
-                self.add_texture(m["texture"])
-                uv = p.texture_uv()
-                if not len(uv) and p.type == 0:
-                    uv = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], f32)
-                p.solid_fraction = f32(self.textures[m["texture"]].get_solid_fraction(uv))
-
-    @ports("Context::getPrimitiveMaterialLabel")
-    def primitive_material_label(self, uuid: int) -> str:
-        return getattr(self.primitives[uuid], "material_label", None) or "(auto)"
-
-    @ports("Context::isPrimitiveTextureColorOverridden")
-    def is_primitive_texture_color_overridden(self, uuid: int) -> bool:
-        return bool(getattr(self.primitives[uuid], "texture_color_overridden", False))
 
     # ---- loadOBJ ---------------------------------------------------------------------------------
     @ports("Context::loadOBJ(const char*,bool)",
@@ -110,20 +63,18 @@ class FileIOMixin:
         for name in sorted(F.materials, key=O.cpp_key):
             mat = F.materials[name]
             ctx_name = name
-            if self._fileio_does_material_exist(name):
+            if self.does_material_exist(name):
                 k = 1
                 while True:
                     ctx_name = f"{name}_{k}"
                     k += 1
-                    if not self._fileio_does_material_exist(ctx_name):
+                    if not self.does_material_exist(ctx_name):
                         break
-            self._fileio_add_material(ctx_name)
-            rec = self._mat_registry()[ctx_name]
-            rec["color"] = np.array([mat.color[0], mat.color[1], mat.color[2], 1], f32)
+            self.add_material(ctx_name)
+            self.set_material_color(ctx_name, np.array([mat.color[0], mat.color[1], mat.color[2], 1], f32))
             if mat.texture:
-                self.add_texture(mat.texture)          # setMaterialTexture -> addTexture
-                rec["texture"] = mat.texture
-            rec["override"] = bool(mat.texture_color_overridden)
+                self.set_material_texture(ctx_name, mat.texture)
+            self.set_material_texture_color_override(ctx_name, bool(mat.texture_color_overridden))
             if mat.normal_map_kind != "none":
                 if not mat.texture:
                     raise ValueError(f"ERROR (Context::loadOBJ): Material '{name}' has the normal or bump map '{mat.normal_map}' "
@@ -133,20 +84,23 @@ class FileIOMixin:
 
         tris = self._obj_triangles(F, scl, origin, rotation, dc, upaxis, mtl_to_ctx)
 
-        # second pass: create the primitives in order
+        # second pass: create the primitives in order. Each one first gets the automatic material of its
+        # appearance (for a map_d-only material: textured black, then its color, then overridden, which
+        # are three automatic materials), then the named material if that label exists in the Context.
+        # A face outside any usemtl ("none") or with an unknown name keeps the raw name, so it joins a
+        # Context material that happens to carry that label, as in Helios.
         uuids = []
         for td in tris:
             if td["texture"]:
                 u = self.add_triangle_textured(td["v0"], td["v1"], td["v2"], td["texture"], *td["uv"])
                 if td["override"]:
-                    p = self.primitives[u]
-                    p.color = np.array([*td["color"], 1], f32)
-                    p.texture_color_overridden = True
+                    self.set_primitive_color(u, td["color"])
+                    self.override_primitive_texture_color(u)
             else:
                 u = self.add_triangle(td["v0"], td["v1"], td["v2"], td["color"])
             uuids.append(u)
-            if td["material"] and self._fileio_does_material_exist(td["material"]):
-                self._fileio_assign_material(u, td["material"])
+            if td["material"] and self.does_material_exist(td["material"]):
+                self.assign_material_to_primitive(u, td["material"])
             if td["object"] != "none" and u in self.primitives:
                 self.set_primitive_data(u, "object_label", td["object"])
 

@@ -68,6 +68,7 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
             c[:3] = 0
         u = self.current_uuid
         self.primitives[u] = Primitive(u, ptype, transform.astype(f32), c)
+        self.primitive_order.insert(u)
         if automatic_material:
             self._assign_automatic_material(self.primitives[u])
         self.current_uuid += 1
@@ -264,6 +265,7 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
     # ---- bookkeeping wrapped around W1-B's copy / delete ----
     def _copy_primitive_one(self, uuid: int) -> int:
         new = super()._copy_primitive_one(uuid)
+        self.primitive_order.insert(new)
         self._material_reference_copied(self.primitives[new])     # same material, one more user
         return new
 
@@ -276,6 +278,7 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
             for u, p in alive.items():
                 if u not in self.primitives:
                     self._material_reference_deleted(p)
+                    self.primitive_order.erase(u)
                     self.hidden_primitives.discard(u)
 
     @ports("Context::getPrimitiveVertices")

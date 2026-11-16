@@ -93,7 +93,8 @@ def interpolate_tube_float(P, frac) -> np.float32:
     frac = f32(frac)
     n = len(P)
     assert n > 0
-    dl = f32(f32(1) / f32(n - 1))
+    with np.errstate(divide="ignore"):
+        dl = f32(f32(1) / f32(n - 1))        # inf for a single node (no segment is visited), as in C++
     f = f32(0)
     for i in range(n - 1):
         fplus = f32(f + dl)

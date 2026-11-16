@@ -49,12 +49,12 @@ import numpy as np
 from ..core import vec as V
 from ..migration_registry import ports
 from . import hooks
-from .params import (BUD_ACTIVE, BUD_DEAD, BUD_DORMANT, AxisRotation, FloralBud, LeafShapeValues,
+from .params import (BUD_ACTIVE, BUD_DEAD, BUD_DORMANT, BUD_FRUITING, AxisRotation, FloralBud, LeafShapeValues,
                      PhytomerParameters, VegetativeBud, deg2rad, make_AxisRotation)
 from .random_parameter import PlantArchitectureError
 from .tube_utils import (MIN_TUBE_LENGTH_FOR_GEOMETRY, MIN_TUBE_RADIUS_FOR_GEOMETRY, NO_PETIOLE_OBJID, PI_F,
                          clamp_offset, compound_leaf_rotation, distribution_mean, get_axis_vector, interpolate_tube,
-                         leaflet_size_max, make_petiole_tube, petiole_radius_fraction)
+                         interpolate_tube_float, leaflet_size_max, make_petiole_tube, petiole_radius_fraction)
 
 f32 = np.float32
 NULLORIGIN = np.zeros(3, f32)
@@ -230,6 +230,17 @@ def stub_generic_leaf_prototype(context, prototype, compound_leaf_index, first_v
     prototype's (private) stream, in the same order (AS:675-701, 867-878), and the same ``last_built_shape``
     record, but two placeholder triangles instead of the lattice blade. ``first_vertex`` sets the polymesh
     frame (``addPolymeshObject`` translates to the first vertex), so a test can give it the oracle's frame."""
+    shape = stub_draws_only(prototype)
+    o = _v(first_vertex)
+    a = f32(f32(0.5) * shape.aspect_ratio)
+    u0 = context.add_triangle(o, o + _v((1, a, 0)), o + _v((1, -a, 0)))
+    u1 = context.add_triangle(o + _v((1, a, 0)), o + _v((2, 0, 0)), o + _v((1, -a, 0)))
+    return context.add_polymesh_object([u0, u1])
+
+
+def stub_draws_only(prototype) -> LeafShapeValues:
+    """The parameter reads / resamples of ``GenericLeafPrototype`` (AS:675-701, 867-878) and its
+    ``last_built_shape`` record, with no geometry. Returns the recorded shape."""
     p = prototype
     Nx = int(p.subdivisions)
     Ny = int(math.ceil(float(f32(p.leaf_aspect_ratio.val() * f32(Nx)))))
@@ -249,17 +260,13 @@ def stub_generic_leaf_prototype(context, prototype, compound_leaf_index, first_v
     shape.roll_fraction = p.roll_fraction.val()
     shape.subdivisions_x = Nx
     shape.subdivisions_y = Ny
-    o = _v(first_vertex)
-    a = f32(f32(0.5) * shape.aspect_ratio)
-    u0 = context.add_triangle(o, o + _v((1, a, 0)), o + _v((1, -a, 0)))
-    u1 = context.add_triangle(o + _v((1, a, 0)), o + _v((2, 0, 0)), o + _v((1, -a, 0)))
     for name in _SHAPE_RESAMPLE_ORDER:
         getattr(p, name).resample()
     p._raw_set("last_built_shape", shape)
     p._raw_set("last_built_shape_valid", True)
     p.wave_period.resample()
     p.wave_amplitude.resample()
-    return context.add_polymesh_object([u0, u1])
+    return shape
 
 
 def _resolve_prototype_function(pa, fn):
@@ -346,6 +353,7 @@ class Phytomer:
         self.age = f32(0)
         self.isdormant = False
         self.downstream_leaf_area = f32(0)
+        self.downstream_inflorescence_area = f32(0)
         self.leaf_texture_stage = 0
         self.internode_curvature_arc_length_step = f32(0)
         self.leaf_shape_state: dict = {}
@@ -1030,9 +1038,14 @@ class Phytomer:
             length = f32(length + V.magnitude(nodes[i + 1] - nodes[i]))
         return length
 
-    @ports("Phytomer::getInternodeRadius")
-    def getInternodeRadius(self) -> np.float32:
-        return self.parent_shoot_ptr.shoot_internode_radii[self.shoot_index[0]][0]
+    @ports("Phytomer::getInternodeRadius()", "Phytomer::getInternodeRadius(float)")
+    def getInternodeRadius(self, stem_fraction=None) -> np.float32:
+        """No argument: the radius at the base (``front()``); with a fraction: ``interpolateTube`` of the
+        phytomer's own radii (PA:1371)."""
+        radii = self.parent_shoot_ptr.shoot_internode_radii[self.shoot_index[0]]
+        if stem_fraction is None:
+            return radii[0]
+        return interpolate_tube_float(radii, stem_fraction)
 
     @ports("Phytomer::getLeafArea")
     def getLeafArea(self) -> np.float32:
@@ -1145,7 +1158,10 @@ class Phytomer:
         fbud.contact_swing_angle = 0
         fbud.state = state
         if state != BUD_DEAD:
-            raise NotImplementedError("updateInflorescence (flower/fruit geometry) is W3-D")
+            self.updateInflorescence(fbud)
+            fbud.time_counter = 0
+            if fbud.state == BUD_FRUITING and fbud.dd_to_inflorescence_maturity != 0:
+                self.setInflorescenceScaleFraction(fbud, f32(0.25))
 
     # ---- scaling called by phytomer creation functions -------------------------------------------
 
@@ -1177,10 +1193,288 @@ class Phytomer:
             self.setInternodeLengthScaleFraction(f32(1), True)
             self.current_internode_scale_factor = f32(1)
 
-    def setInternodeLengthScaleFraction(self, internode_scale_factor_fraction, update_context_geometry):
-        raise NotImplementedError("Phytomer::setInternodeLengthScaleFraction is W3-C (growth)")
+    # ---- growth (W3-C) ---------------------------------------------------------------------------
+
+    @ports("Phytomer::hasLeaf")
+    def hasLeaf(self) -> bool:
+        return bool(self.leaf_bases) and bool(self.leaf_bases[0])
+
+    @ports("Phytomer::getExistingPetioleObjIDs")
+    def getExistingPetioleObjIDs(self) -> list:
+        return [o for o in self.petiole_objIDs if self.context_ptr.does_object_exist(o)]
+
+    @ports("Phytomer::calculatePhytomerVolume")
+    def calculatePhytomerVolume(self, node_number: int) -> np.float32:
+        segment = self.parent_shoot_ptr.shoot_internode_radii[node_number]
+        avg_radius = f32(0)
+        for r in segment:
+            avg_radius = f32(avg_radius + r)
+        avg_radius = f32(avg_radius / f32(len(segment)))
+        length = self.getInternodeLength()
+        return f32(f32(f32(PI_F * avg_radius) * avg_radius) * length)
+
+    @ports("Phytomer::getInflorescenceArea")
+    def getInflorescenceArea(self) -> np.float32:
+        ctx = self.context_ptr
+        area = f32(0)
+        for petiole in self.floral_buds:
+            for fbud in petiole:
+                for objID in fbud.inflorescence_objIDs:
+                    if ctx.does_object_exist(objID):
+                        sf = f32(fbud.current_fruit_scale_factor)
+                        if sf > 0:
+                            area = f32(area + f32(ctx.object_area(objID) / f32(sf * sf)))
+        return area
+
+    @ports("Phytomer::peduncleShouldMatchCulm")
+    def peduncleShouldMatchCulm(self) -> bool:
+        if self.parent_shoot_ptr.shoot_parameters.phytomer_parameters.internode.image_texture:
+            return False
+        return self.shoot_index[0] + 1 == self.shoot_index[2]
+
+    @ports("Phytomer::inflorescenceLoadsStem")
+    def inflorescenceLoadsStem(self) -> bool:
+        if not self.peduncleShouldMatchCulm():
+            return False
+        return any(fbud.isterminal for petiole in self.floral_buds for fbud in petiole)
+
+    @ports("Phytomer::setInternodeLengthScaleFraction")
+    def setInternodeLengthScaleFraction(self, internode_scale_factor_fraction, update_context_geometry: bool):
+        """PA:4308-4347: stretch each segment of this internode by ``fraction / current`` and carry every
+        downstream node of the shoot along, then ``updateShootNodes``."""
+        frac = f32(internode_scale_factor_fraction)
+        if frac == self.current_internode_scale_factor:
+            return
+        delta_scale = f32(frac / self.current_internode_scale_factor)
+        self.current_internode_scale_factor = frac
+        verts = self.parent_shoot_ptr.shoot_internode_vertices
+        p = self.shoot_index[0]
+        s_start = 1 if p == 0 else 0
+        dm1 = f32(delta_scale - f32(1))
+        for s in range(s_start, len(verts[p])):
+            p_minus, s_minus = p, s - 1
+            if s_minus < 0:
+                p_minus -= 1
+                s_minus = len(verts[p_minus]) - 1
+            central_axis = verts[p][s] - verts[p_minus][s_minus]
+            current_length = V.magnitude(central_axis)
+            central_axis = V.div(central_axis, current_length)
+            dL = (central_axis * current_length) * dm1            # (vec3 * float) * float
+            for p_downstream in range(p, len(verts)):
+                sd_start = s if p_downstream == p else 0
+                row = verts[p_downstream]
+                for s_downstream in range(sd_start, len(row)):
+                    row[s_downstream] = row[s_downstream] + dL
+        self.parent_shoot_ptr.updateShootNodes(update_context_geometry)
+
+    @ports("Phytomer::setPetioleBase")
+    def setPetioleBase(self, base_position):
+        """PA:4199-4250: move the petioles, leaves, peduncles and floral buds by ``base - old base``."""
+        ctx = self.context_ptr
+        base_position = _v(base_position)
+        old_base = self.seated_node_position if not self.petiole_vertices else self.petiole_vertices[0][0]
+        shift = base_position - old_base
+        self.seated_node_position = base_position.copy()
+        for pv in self.petiole_vertices:
+            for i in range(len(pv)):
+                pv[i] = pv[i] + shift
+        if self.build_context_geometry_petiole:
+            ctx.translate_object(self.getExistingPetioleObjIDs(), shift)
+        ctx.translate_object([o for petiole in self.leaf_objIDs for o in petiole], shift)
+        for petiole in self.leaf_bases:
+            for i in range(len(petiole)):
+                petiole[i] = petiole[i] + shift
+        for k in list(self.leaf_stalk_base_placed):
+            self.leaf_stalk_base_placed[k] = _v(self.leaf_stalk_base_placed[k]) + shift
+        for petiole_peduncles in self.peduncle_vertices:
+            for bud_vertices in petiole_peduncles:
+                for i in range(len(bud_vertices)):
+                    bud_vertices[i] = _v(bud_vertices[i]) + shift
+        for floral_bud in self.floral_buds:
+            for fbud in floral_bud:
+                fbud.base_position = tuple(_v(fbud.base_position) + shift)
+                ctx.translate_object(list(fbud.inflorescence_objIDs), shift)
+                fbud.inflorescence_bases = [_v(b) + shift for b in fbud.inflorescence_bases]
+                if self.build_context_geometry_peduncle:
+                    ctx.translate_object(list(fbud.peduncle_objIDs), shift)
+
+    @ports("Phytomer::setLeafScaleFraction(uint,float)")
+    def setLeafScaleFraction(self, petiole_index: int, leaf_scale_factor_fraction):
+        if len(self.current_petiole_scale_factor) <= petiole_index:
+            raise PlantArchitectureError("ERROR (PlantArchitecture::Phytomer::setLeafScaleFraction): Invalid petiole index "
+                                         "for leaf scale factor.")
+        self.setPetioleAndLeafScaleFraction(petiole_index, leaf_scale_factor_fraction, leaf_scale_factor_fraction)
+
+    @ports("Phytomer::setPetioleScaleFraction")
+    def setPetioleScaleFraction(self, petiole_index: int, petiole_scale_factor_fraction):
+        if len(self.current_leaf_scale_factor) <= petiole_index:
+            raise PlantArchitectureError("ERROR (PlantArchitecture::Phytomer::setPetioleScaleFraction): Invalid petiole "
+                                         "index for petiole scale factor.")
+        self.setPetioleAndLeafScaleFraction(petiole_index, petiole_scale_factor_fraction,
+                                            self.current_leaf_scale_factor[petiole_index])
+
+    @ports("Phytomer::setPetioleAndLeafScaleFraction")
+    def setPetioleAndLeafScaleFraction(self, petiole_index: int, petiole_scale_factor_fraction, leaf_scale_factor_fraction):
+        """PA:4402-4530 (rigid, procedurally placed leaves)."""
+        pa, ctx, pp = self.plantarchitecture_ptr, self.context_ptr, self.phytomer_parameters
+        pa.invalidateOrganIndex()
+        psf, lsf = f32(petiole_scale_factor_fraction), f32(leaf_scale_factor_fraction)
+        p = petiole_index
+        if len(self.current_leaf_scale_factor) <= p or len(self.current_petiole_scale_factor) <= p:
+            raise PlantArchitectureError("ERROR (PlantArchitecture::Phytomer): Invalid petiole index for leaf scale factor.")
+        if ((psf == self.current_petiole_scale_factor[p] and lsf == self.current_leaf_scale_factor[p])
+                or (not self.leaf_objIDs[p] and not ctx.does_object_exist(self.petiole_objIDs[p]))):
+            self.bendPetioleUnderLeafWeight(p)
+            for leaf in range(len(self.leaf_objIDs[p])):
+                self.deformLeafUnderSelfWeight(p, leaf)
+            return
+
+        petiole_delta_scale = f32(psf / self.current_petiole_scale_factor[p])
+        petiole_radius_delta_scale = f32(petiole_radius_fraction(psf)
+                                         / petiole_radius_fraction(self.current_petiole_scale_factor[p]))
+        delta_scale = f32(lsf / self.current_leaf_scale_factor[p])
+
+        self.petiole_length[p] = f32(self.petiole_length[p] * petiole_delta_scale)
+        self.current_petiole_scale_factor[p] = psf
+        self.current_leaf_scale_factor[p] = lsf
+
+        pv, pr = self.petiole_vertices[p], self.petiole_radii[p]
+        base = pv[0].copy()
+        for node in range(len(pr)):
+            pr[node] = f32(pr[node] * petiole_radius_delta_scale)
+        for node in range(1, len(pv)):
+            offset = pv[node] - base
+            pv[node] = base + offset * petiole_delta_scale
+        if p < len(self.petiole_rest_offsets):
+            self.petiole_rest_offsets[p] = [o * petiole_delta_scale for o in self.petiole_rest_offsets[p]]
+        if petiole_delta_scale != 1 and p < len(self.petiole_bend_state):
+            self.petiole_bend_state[p] = np.array([-1, 0, 0], f32)
+
+        if ctx.does_object_exist(self.petiole_objIDs[p]):
+            ctx.set_tube_nodes(self.petiole_objIDs[p], pv)
+            ctx.set_tube_radii(self.petiole_objIDs[p], pr)
+        elif self.build_context_geometry_petiole:
+            nrad = max(3, int(pp.petiole.radial_subdivisions))
+            self.petiole_objIDs[p] = make_petiole_tube(nrad, pv, pr, self.petiole_colors, ctx)
+            if ctx.does_object_exist(self.petiole_objIDs[p]):
+                ctx.set_primitive_data(ctx.object_primitive_uuids(self.petiole_objIDs[p]), "object_label", "petiole")
+                name_organ_materials(pa, self.petiole_objIDs[p], f"{pa.plant_instances[self.plantID].plant_name}_"
+                                                               f"{self.parent_shoot_ptr.shoot_type_label}_petiole")
+
+        n = len(self.leaf_objIDs[p])
+        for leaf in range(n):
+            oid = self.leaf_objIDs[p][leaf]
+            ind_from_tip = f32(f32(leaf) - f32(f32(n - 1) / f32(2)))
+            leaflet_offset_val = clamp_offset(n, pp.leaf.leaflet_offset.val())
+            pose_prescribed = (p < len(self.leaf_pose_prescribed) and leaf < len(self.leaf_pose_prescribed[p])
+                               and self.leaf_pose_prescribed[p][leaf])
+            ctx.translate_object(oid, f32(-1) * self.leaf_bases[p][leaf])
+            ctx.scale_object(oid, (delta_scale, delta_scale, delta_scale))
+            if pose_prescribed:
+                raise NotImplementedError("prescribed leaf poses (setPetioleLeafGeometry) are not ported")
+            elif ind_from_tip == 0:
+                ctx.translate_object(oid, pv[-1])
+                self.leaf_bases[p][leaf] = pv[-1].copy()
+            else:
+                # (fabs(ind) - 0.5f) * offset * length: C fabs promotes the product to double (as in the constructor)
+                length = pp.petiole.length.val()
+                offset = f32((abs(float(ind_from_tip)) - 0.5) * float(leaflet_offset_val) * float(length))
+                leaf_base = interpolate_tube(pv, f32(f32(1) - f32(offset / length)))
+                ctx.translate_object(oid, leaf_base)
+                self.leaf_bases[p][leaf] = np.asarray(leaf_base, f32).copy()
+            self.deformLeafUnderSelfWeight(p, leaf)
+
+        self.bendPetioleUnderLeafWeight(p)
+
+    @ports("Phytomer::deformLeafUnderSelfWeight")
+    def deformLeafUnderSelfWeight(self, petiole_index: int, leaf_index: int):
+        if self.leaf_flexibility <= 0:
+            return
+        raise NotImplementedError("deformLeafUnderSelfWeight for a flexible leaf is not ported (tomato is rigid)")
+
+    # ---- inflorescence seam (W3-D) --------------------------------------------------------------
+
+    @ports("Phytomer::updatePeduncleRadii")
+    def updatePeduncleRadii(self):
+        if not any(fbud.peduncle_objIDs for petiole in self.floral_buds for fbud in petiole):
+            return
+        raise NotImplementedError("Phytomer::updatePeduncleRadii (peduncle geometry) is W3-D")
+
+    @ports("Phytomer::updateInflorescence")
+    def updateInflorescence(self, fbud):
+        """W3-D builds the peduncle and the flowers/fruit here. Until then this raises, unless the
+        PlantArchitecture opted into ``inflorescence_geometry_draws_only``: then only the random-parameter
+        reads and resamples of PA:3934-4197 (and the prototype pick of createInflorescenceGeometry) are
+        replayed, in their order, with no geometry. The draw stream and the vegetative state stay exact; no
+        peduncle / flower / fruit objects or UUIDs exist."""
+        pa = self.plantarchitecture_ptr
+        if not getattr(pa, "inflorescence_geometry_draws_only", False):
+            raise NotImplementedError("Phytomer::updateInflorescence (flower/fruit geometry) is W3-D")
+        pa.inflorescence_geometry_is_stub = True
+        self._update_inflorescence_draws(fbud)
+
+    def _update_inflorescence_draws(self, fbud):
+        """The RNG-relevant skeleton of updateInflorescence + createInflorescenceGeometry (PA:3934-4197, 3623)."""
+        pa, ctx, pp = self.plantarchitecture_ptr, self.context_ptr, self.phytomer_parameters
+        ped, inf = pp.peduncle, pp.inflorescence
+        fbud.contact_swing_axis = (0, 0, 1)
+        fbud.contact_swing_angle = 0
+        self.build_context_geometry_peduncle = pa.build_context_geometry_peduncle
+        ped.length.val()
+        if self.getInternodeRadius(f32(1)) <= 0 or not self.peduncleShouldMatchCulm():   # getReconciledPeduncleRadius
+            ped.radius.val()
+        if ped.pitch.val() != 0 or fbud.base_rotation.pitch != 0:
+            ped.pitch.val()
+        ped.yaw.val()
+        ped.curvature.val()
+        ped.curvature.resample()
+        ped.roll.val()
+        ped.radius.val()
+        ped.pitch.val()
+        ped.length.resample()
+        ped.radius.resample()
+        ped.pitch.resample()
+        ped.yaw.resample()
+        if int(inf.unique_prototypes) > 0 and pa.plant_instances[self.plantID].organ_build_parameters:
+            raise NotImplementedError("organ build parameters are not ported")
+        flowers_per_peduncle = int(inf.flowers_per_peduncle.val())
+        flower_offset_val = clamp_offset(flowers_per_peduncle, inf.flower_offset.val())
+        for fruit in range(flowers_per_peduncle):
+            if fbud.state == BUD_FRUITING:
+                inf.fruit_prototype_scale.val()
+                inf.fruit_prototype_scale.resample()
+            else:
+                inf.flower_prototype_scale.val()
+                inf.flower_prototype_scale.resample()
+            ind_from_tip = abs(float(f32(f32(fruit) - f32(f32(flowers_per_peduncle - 1)
+                                                            / f32(pp.petiole.petioles_per_internode)))))
+            if flowers_per_peduncle > 1 and flower_offset_val > 0 and ind_from_tip != 0:
+                ped.length.val()
+            if flowers_per_peduncle > 1 and flower_offset_val != 0:
+                pp.internode.phyllotactic_angle.val()
+                pp.internode.phyllotactic_angle.resample()
+            inf.roll.val()
+            inf.roll.resample()
+            inf.pitch.val()
+            inf.pitch.resample()
+            if fbud.state == BUD_FRUITING:
+                inf.fruit_gravity_factor_fraction.val()
+            inf.fruit_gravity_factor_fraction.resample()
+            if int(inf.unique_prototypes) > 0:                      # createInflorescenceGeometry: prototype pick
+                ctx.randu(0, int(inf.unique_prototypes) - 1)
+            else:
+                raise NotImplementedError("inflorescence unique_prototypes == 0 is W3-D")
+        inf.flowers_per_peduncle.resample()
+        ped.roll.resample()
+
+    @ports("Phytomer::setInflorescenceScaleFraction")
+    def setInflorescenceScaleFraction(self, fbud, inflorescence_scale_factor_fraction):
+        if getattr(self.plantarchitecture_ptr, "inflorescence_geometry_draws_only", False):
+            fbud.current_fruit_scale_factor = f32(inflorescence_scale_factor_fraction)   # nothing to scale
+            return
+        raise NotImplementedError("Phytomer::setInflorescenceScaleFraction is W3-D")
 
 
 __all__ = ["Phytomer", "create_petiole_floral_buds", "name_organ_materials", "get_leaf_blade_area",
-           "stub_generic_leaf_prototype", "record_leaf_prototype_rest_geometry", "get_cached_leaf_prototype_objID",
+           "stub_generic_leaf_prototype", "stub_draws_only", "record_leaf_prototype_rest_geometry", "get_cached_leaf_prototype_objID",
            "OrganMaterial", "LeafRestGeometry", "atan2f"]

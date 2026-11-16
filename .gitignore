@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+outputs/helios/*.json
+third_party/
+migration/inventory.json

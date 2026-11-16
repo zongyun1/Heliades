@@ -1,0 +1,18 @@
+[project]
+name = "heliades"
+version = "0.0.1"
+description = "Simulation-first, GPU-native plant modeling platform (port of Helios) + PlantTwin deformable sim"
+license = "LGPL-2.1-or-later"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "scipy>=1.10", "matplotlib>=3.7", "warp-lang>=1.9", "usd-core>=24.0"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+# oracle: PyHelios built from third_party/pyhelios_src at the pinned Helios baseline (migration/PORTING.md)
+
+[tool.setuptools]
+packages = ["planttwin", "heliades", "heliades.core", "heliades.io", "heliades.parity"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

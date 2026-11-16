@@ -1,0 +1,29 @@
+  [static_only] gen  1  theta=[1.14995925e+08 2.06000000e-02 1.44030000e+00]
+  [static_only] gen  2  theta=[1.14995925e+08 2.06000000e-02 1.44030000e+00]
+  [static_only] gen  3  theta=[1.14995925e+08 2.06000000e-02 1.44030000e+00]
+  [static_only] gen  4  theta=[1.14995925e+08 2.06000000e-02 1.44030000e+00]
+  [static_only] gen  5  theta=[1.14995925e+08 2.06000000e-02 1.44030000e+00]
+  [static_only] gen  6  theta=[1.02164075e+08 2.05000000e-02 2.15700000e+00]
+  [static_only] gen  7  theta=[1.02164075e+08 2.05000000e-02 2.15700000e+00]
+  [static_only] gen  8  theta=[1.03461554e+08 2.00000000e-02 1.36390000e+00]
+  [static_only] gen  9  theta=[1.00466633e+08 1.93000000e-02 1.87240000e+00]
+  [static_only] gen 10  theta=[1.00466633e+08 1.93000000e-02 1.87240000e+00]
+static_only: loss=1.49px^2  evals=352  215s
+   stem_youngs_modulus    true=1e+08  est=1.005e+08  err=+0.5%
+   leaf_bend_compliance   true=0.02  est=0.01926  err=-3.7%
+   damping                true=1.2  est=1.872  err=+56.0%
+  [static+video] gen  1  theta=[1.14995925e+08 2.06000000e-02 1.44030000e+00]
+  [static+video] gen  2  theta=[1.14995925e+08 2.06000000e-02 1.44030000e+00]
+  [static+video] gen  3  theta=[1.14995925e+08 2.06000000e-02 1.44030000e+00]
+  [static+video] gen  4  theta=[1.14995925e+08 2.06000000e-02 1.44030000e+00]
+  [static+video] gen  5  theta=[1.13130785e+08 2.02000000e-02 8.10700000e-01]
+  [static+video] gen  6  theta=[1.13130785e+08 2.02000000e-02 8.10700000e-01]
+  [static+video] gen  7  theta=[1.13130785e+08 2.02000000e-02 8.10700000e-01]
+  [static+video] gen  8  theta=[1.13130785e+08 2.02000000e-02 9.92800000e-01]
+  [static+video] gen  9  theta=[9.63879029e+07 1.97000000e-02 1.55390000e+00]
+  [static+video] gen 10  theta=[1.02882027e+08 1.88000000e-02 9.60300000e-01]
+static+video: loss=4.84px^2  evals=352  633s
+   stem_youngs_modulus    true=1e+08  est=1.029e+08  err=+2.9%
+   leaf_bend_compliance   true=0.02  est=0.01881  err=-6.0%
+   damping                true=1.2  est=0.9603  err=-20.0%
+wrote /home/yun/Desktop/plants/outputs/real2sim_results.json /home/yun/Desktop/plants/outputs/real2sim_tracks.png

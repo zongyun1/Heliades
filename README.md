@@ -147,6 +147,8 @@ against a pinned Helios build**:
 |---|---|
 | Bit-exact Helios RNG (minstd_rand0 + portable distributions) | `heliades/core/random.py` |
 | Scene/primitive geometry, float32 op-for-op with `Context_primitive.cpp` | `heliades/core/scene.py` |
+| Compound objects: tube (parallel-transport frames), tile, polymesh; 0-ulp vs Helios | `heliades/core/scene.py`, `heliades/core/vec.py` |
+| Demo: toy plant from tubes + tiles, USD + PNG, parity-checked | `scripts/heliades_demo.py` → `outputs/heliades/` |
 | GPU BVH + batched ray casting (Warp) | `heliades/core/device.py` |
 | USD export (UUIDs and primitive data as primvars) | `heliades/io/usd.py` |
 | Parity harness: one case runs on both backends; exact / ulp / dist tiers | `heliades/parity/` |

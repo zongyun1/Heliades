@@ -42,6 +42,15 @@ class ForgeBackend:
     def scale(self, uuid, s):
         self.scene.scale_primitive(uuid, s)
 
+    def add_tile(self, center, size, rotation, subdiv, color=(0.0, 0.75, 0.0)):
+        return self.scene.add_tile_object(center, size, rotation, subdiv, color)
+
+    def add_tube(self, ndiv, nodes, radius, colors=None):
+        return self.scene.add_tube_object(ndiv, nodes, radius, colors)
+
+    def add_polymesh(self, uuids):
+        return self.scene.add_polymesh_object(uuids)
+
     def snapshot(self) -> Snapshot:
         return self.scene.snapshot()
 
@@ -90,6 +99,21 @@ class HeliosBackend:
     def scale(self, uuid, s):
         self.ctx.scalePrimitive(uuid, self.D.vec3(*map(float, s)))
 
+    def add_tile(self, center, size, rotation, subdiv, color=(0.0, 0.75, 0.0)):
+        D = self.D
+        return self.ctx.addTileObject(D.vec3(*map(float, center)), D.vec2(*map(float, size)),
+                                      D.SphericalCoord(1.0, float(rotation[0]), float(rotation[1])),
+                                      D.int2(int(subdiv[0]), int(subdiv[1])), self._c(color))
+
+    def add_tube(self, ndiv, nodes, radius, colors=None):
+        D = self.D
+        cols = None if colors is None else [self._c(c) for c in colors]
+        return self.ctx.addTubeObject(int(ndiv), [D.vec3(*map(float, p)) for p in nodes],
+                                      [float(r) for r in radius], cols)
+
+    def add_polymesh(self, uuids):
+        return self.ctx.addPolymeshObject([int(u) for u in uuids])
+
     def snapshot(self) -> Snapshot:
         return helios_snapshot(self.ctx)
 
@@ -113,4 +137,18 @@ def helios_snapshot(ctx) -> Snapshot:
     if C.shape[1] == 3:
         C = np.c_[C, np.ones(n, np.float32)]
     o = np.argsort(uu)
-    return Snapshot(uu[o], T[o], V[o], nv[o], A[o], N[o], C[o])
+    P = np.array([ctx.getPrimitiveParentObjectID(int(u)) for u in uu[o]], np.int64)
+    oids = sorted(ctx.getAllObjectIDs())
+    from .snapshot import ObjectTable
+    objs = ObjectTable(
+        np.array(oids, np.int64),
+        np.array([ctx.getObjectType(i) for i in oids], np.int32),
+        [np.array(ctx.getObjectPrimitiveUUIDs(i), np.int64) for i in oids],
+        np.array([[*_vec(ctx.getObjectCenter(i))] for i in oids], np.float32).reshape(-1, 3),
+        np.array([np.asarray(ctx.getObjectTransformationMatrix(i), np.float32).reshape(16) for i in oids],
+                 np.float32).reshape(-1, 16))
+    return Snapshot(uu[o], T[o], V[o], nv[o], A[o], N[o], C[o], P, objs)
+
+
+def _vec(v):
+    return (v.x, v.y, v.z)

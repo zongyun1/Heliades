@@ -100,3 +100,67 @@ def transform_fuzz(B, seed):
         else:
             B.scale(u, r.uniform(0.5, 2, 3))
     return B.snapshot()
+
+
+# ---- core.objects --------------------------------------------------------------------------
+
+@case("core.object.tile", fuzz=6)
+def tile_fuzz(B, seed):
+    r = _rand_inputs(seed)
+    for _ in range(6):
+        rot = (0.0, 0.0) if r.random() < 0.3 else (r.uniform(-math.pi, math.pi), r.uniform(0, 2 * math.pi))
+        B.add_tile(r.uniform(-3, 3, 3), r.uniform(0.05, 2, 2), rot, (int(r.integers(1, 5)), int(r.integers(1, 5))),
+                   r.random(3))
+    return B.snapshot()
+
+
+def _stem(r, n):
+    """Random plant-like polyline: mostly upward with random bends, occasional kinks and repeats."""
+    p = [r.uniform(-1, 1, 3)]
+    d = np.array([0.0, 0.0, 1.0])
+    for k in range(n - 1):
+        u = r.random()
+        if u < 0.1:
+            d = r.normal(size=3)                       # sharp kink
+        elif u < 0.2:
+            pass                                       # straight (parallel-transport fallback path)
+        else:
+            d = d + 0.4 * r.normal(size=3)
+        d = d / np.linalg.norm(d)
+        step = 0.0 if r.random() < 0.03 else r.uniform(0.005, 0.1)   # coincident nodes
+        p.append(p[-1] + step * d)
+    return np.array(p)
+
+
+@case("core.object.tube", fuzz=8)
+def tube_fuzz(B, seed):
+    r = _rand_inputs(seed)
+    for _ in range(5):
+        n = int(r.integers(2, 14))
+        nodes = _stem(r, n)
+        rad = r.uniform(0.0005, 0.02, n)
+        rad[r.random(n) < 0.1] = 1e-7                  # below the 1e-5 clamp
+        cols = r.random((n, 3)) if r.random() < 0.5 else None
+        B.add_tube(int(r.integers(3, 12)), nodes, rad, cols)
+    return B.snapshot()
+
+
+@case("core.object.tube_axes", fuzz=1)
+def tube_axes(B, seed):
+    """Axis-aligned and near-degenerate tubes hit every initial-radial branch."""
+    for d in ([0, 0, 1], [0, 0, -1], [1, 0, 0], [0, 1, 0], [0.96, 0.28, 0], [0.3, 0.1, 0.95], [1e-8, 0, 0]):
+        d = np.array(d, float)
+        B.add_tube(6, [np.zeros(3), d, 2 * d, 2 * d + [0, 0, 0.1]], [0.01, 0.01, 0.008, 0.005])
+    return B.snapshot()
+
+
+@case("core.object.polymesh", fuzz=4)
+def polymesh_fuzz(B, seed):
+    r = _rand_inputs(seed)
+    uu = [B.add_triangle(r.normal(size=3), r.normal(size=3), r.normal(size=3)) for _ in range(8)]
+    uu += [B.add_patch(r.uniform(-1, 1, 3), r.uniform(0.1, 1, 2)) for _ in range(4)]
+    a = B.add_polymesh(uu[:6])
+    B.add_polymesh(uu[:6])                             # re-wrap returns the same object
+    B.add_polymesh(uu[3:])                             # partially parented: only free ones join
+    B.add_tile(r.uniform(-1, 1, 3), (1.0, 1.0), (0.2, 0.3), (2, 2))
+    return B.snapshot()

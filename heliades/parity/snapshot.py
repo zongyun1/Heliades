@@ -2,9 +2,26 @@
 """Backend-neutral dense dump of a scene, used for differential comparison and bulk export."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
+
+
+@dataclass
+class ObjectTable:
+    oid: np.ndarray                 # (m,) int64, sorted
+    type: np.ndarray                # (m,) int32 (OBJECT_TYPE_*)
+    uuids: list[np.ndarray]         # member primitive UUIDs, in object order
+    center: np.ndarray              # (m,3) float32, getObjectCenter
+    transform: np.ndarray           # (m,16) float32, getObjectTransformationMatrix
+
+    @staticmethod
+    def empty() -> "ObjectTable":
+        return ObjectTable(np.zeros(0, np.int64), np.zeros(0, np.int32), [], np.zeros((0, 3), np.float32),
+                           np.zeros((0, 16), np.float32))
+
+    def __len__(self):
+        return len(self.oid)
 
 
 @dataclass
@@ -16,6 +33,12 @@ class Snapshot:
     area: np.ndarray       # (n,) float32
     normal: np.ndarray     # (n,3) float32
     color: np.ndarray      # (n,4) float32 RGBA
+    parent: np.ndarray = None           # (n,) int64 parent object ID (0 = none)
+    objects: ObjectTable = field(default_factory=ObjectTable.empty)
+
+    def __post_init__(self):
+        if self.parent is None:
+            self.parent = np.zeros(len(self.uuid), np.int64)
 
     def __len__(self):
         return len(self.uuid)

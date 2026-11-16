@@ -41,6 +41,8 @@ def write_usd(snap: Snapshot, path: str | Path, face_data: dict[str, np.ndarray]
     col.Set(Vt.Vec3fArray.FromNumpy(snap.color[:, :3].astype(np.float32)))
     pv.CreatePrimvar("heliosUUID", Sdf.ValueTypeNames.IntArray, UsdGeom.Tokens.uniform).Set(
         Vt.IntArray.FromNumpy(snap.uuid.astype(np.int32)))
+    pv.CreatePrimvar("heliosObjectID", Sdf.ValueTypeNames.IntArray, UsdGeom.Tokens.uniform).Set(
+        Vt.IntArray.FromNumpy(snap.parent.astype(np.int32)))
     for name, vals in (face_data or {}).items():
         vals = np.asarray(vals)
         tn = Sdf.ValueTypeNames.FloatArray if vals.dtype.kind == "f" else Sdf.ValueTypeNames.IntArray

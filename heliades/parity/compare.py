@@ -50,7 +50,7 @@ def compare_snapshots(a: Snapshot, b: Snapshot, max_ulp: int = 4, abs_floor: flo
         missing = np.setxor1d(a.uuid, b.uuid)
         r.first_divergence = f"uuid sets differ ({len(common)} common, first unmatched {missing[:5].tolist()})"
         return r
-    for name in ("type", "nverts"):
+    for name in ("type", "nverts", "parent"):
         bad = np.nonzero(getattr(a, name) != getattr(b, name))[0]
         r.checks[name] = {"n_bad": len(bad)}
         if len(bad):
@@ -71,7 +71,33 @@ def compare_snapshots(a: Snapshot, b: Snapshot, max_ulp: int = 4, abs_floor: flo
             r.ok = False
             i = int(np.nonzero(bad)[0][0])
             r.first_divergence = r.first_divergence or f"{name} at uuid {a.uuid[i]}: {x[i]} vs {y[i]}"
+    _compare_objects(a.objects, b.objects, r, max_ulp, abs_floor)
     return r
+
+
+def _compare_objects(a, b, r: Report, max_ulp: int, abs_floor: float):
+    if not np.array_equal(a.oid, b.oid) or not np.array_equal(a.type, b.type):
+        r.ok = False
+        r.checks["objects"] = {"n_a": len(a), "n_b": len(b)}
+        r.first_divergence = r.first_divergence or f"object ids/types differ: {a.oid[:5]} {a.type[:5]} vs {b.oid[:5]} {b.type[:5]}"
+        return
+    bad_members = [int(o) for o, x, y in zip(a.oid, a.uuids, b.uuids) if not np.array_equal(x, y)]
+    r.checks["obj_uuids"] = {"n": len(a), "n_bad": len(bad_members)}
+    if bad_members:
+        r.ok = False
+        r.first_divergence = r.first_divergence or f"member UUIDs of object {bad_members[0]}"
+    for name in ("center", "transform"):
+        x, y = getattr(a, name), getattr(b, name)
+        if not x.size:
+            continue
+        u = ulp_distance(x, y)
+        d = np.abs(x.astype(np.float64) - y.astype(np.float64))
+        bad = ((u > max_ulp) & (d > abs_floor)).any(1)
+        r.checks["obj_" + name] = {"max_ulp": int(u.max()), "max_abs": float(d.max()), "n_bad": int(bad.sum())}
+        if bad.any():
+            r.ok = False
+            i = int(np.nonzero(bad)[0][0])
+            r.first_divergence = r.first_divergence or f"object {a.oid[i]} {name}: {x[i]} vs {y[i]}"
 
 
 def compare_streams(a, b, max_ulp: int = 0) -> Report:

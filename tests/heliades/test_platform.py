@@ -47,3 +47,28 @@ def test_device_raycast_hits_right_primitive():
     t, hit = ds.cast(o, d)
     assert hit.tolist() == [0, 1, 2, -1]
     assert t[:3] == pytest.approx([4.0, 5.0, 5.0], abs=1e-5)
+
+
+def test_tube_ring_lies_at_radius():
+    s = Scene()
+    nodes = np.array([[0, 0, 0], [0, 0, 0.1], [0.02, 0, 0.2], [0.05, 0.01, 0.28]], np.float32)
+    rad = np.array([0.01, 0.008, 0.006, 0.004], np.float32)
+    o = s.add_tube_object(8, nodes, rad)
+    uu = s.object_primitive_uuids(o)
+    assert len(uu) == 2 * 3 * 8 and all(s.primitive_parent_object(u) == o for u in uu)
+    V = np.concatenate([s.primitive_vertices(u) for u in uu])
+    d = np.min(np.linalg.norm(V[:, None, :] - nodes[None], axis=2) / rad[None], axis=1)
+    assert np.allclose(d, 1.0, atol=0.05)
+
+
+def test_usd_carries_object_ids(tmp_path):
+    pytest.importorskip("pxr")
+    from pxr import Usd, UsdGeom
+
+    from heliades.io.usd import write_usd
+    s = Scene()
+    s.add_patch((0, 0, 0), (1, 1))
+    o = s.add_tile_object((0, 0, 1), (1, 1), (0, 0), (2, 1))
+    stage = Usd.Stage.Open(str(write_usd(s.snapshot(), tmp_path / "o.usda")))
+    ids = UsdGeom.PrimvarsAPI(stage.GetPrimAtPath("/Scene/primitives")).GetPrimvar("heliosObjectID").Get()
+    assert list(ids) == [0, o, o]

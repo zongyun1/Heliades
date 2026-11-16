@@ -122,3 +122,53 @@ def _(B, crop, age, nodes):
     pa.setPlantPhenologicalThresholds(pid, *THRESHOLDS[crop])
     pa.advanceTime(pid, 2.0)
     return pid
+
+
+# ---- inflorescence objects (W3-D) ----------------------------------------------------------------------
+
+def _object_geometry(ids, uuids_of, transform_of, vertices_of):
+    out = []
+    for oid in sorted(ids):
+        uu = list(uuids_of(oid))
+        out += [float(oid), float(len(uu))] + [float(u) for u in uu] + transform_of(oid)
+        for u in uu:
+            out += vertices_of(u)
+    return out
+
+
+@op("w4a_inflorescence_geometry", "helios")
+def _(B):
+    """Every peduncle, flower and fruit object, sorted by ID: ID, UUIDs, 4x4 transform, triangle vertices."""
+    ctx, pa, pid = B.ctx, B.pa, B.pid
+    out = []
+    for ids in (pa.getPlantPeduncleObjectIDs(pid), pa.getPlantFlowerObjectIDs(pid), pa.getPlantFruitObjectIDs(pid)):
+        out.append(-1.0)
+        out += _object_geometry(
+            [int(o) for o in ids], lambda o: [int(u) for u in ctx.getObjectPrimitiveUUIDs(o)],
+            lambda o: [float(x) for x in np.asarray(ctx.getObjectTransformationMatrix(o), f32).reshape(16)],
+            lambda u: [float(x) for x in np.asarray(ctx.getPrimitiveVertices([u])[0], f32).reshape(-1)])
+    return out
+
+
+@op("w4a_inflorescence_geometry", "heliades")
+def _(B):
+    from ..plantarchitecture.params import BUD_FLOWER_CLOSED, BUD_FLOWER_OPEN, BUD_FRUITING
+    s = B.scene
+    ped, flo, fru = [], [], []
+    for shoot in B.pa.plant_instances[B.pid].shoot_tree:
+        for ph in shoot.phytomers:
+            for petiole in ph.floral_buds:
+                for fbud in petiole:
+                    ped += [o for o in fbud.peduncle_objIDs if s.does_object_exist(o)]
+                    objs = [o for o in fbud.inflorescence_objIDs if s.does_object_exist(o)]
+                    if fbud.state in (BUD_FLOWER_CLOSED, BUD_FLOWER_OPEN):
+                        flo += objs
+                    elif fbud.state == BUD_FRUITING:
+                        fru += objs
+    out = []
+    for ids in (ped, flo, fru):
+        out.append(-1.0)
+        out += _object_geometry(ids, s.object_primitive_uuids,
+                                lambda o: [float(x) for x in s.object_transform(o).reshape(16)],
+                                lambda u: [float(x) for x in s.primitive_vertices(u).reshape(-1)])
+    return out

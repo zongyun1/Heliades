@@ -81,12 +81,13 @@ def test_cherrytomato_callback_prunes_low_leaves_from_day_101():
 
 @pytest.mark.parametrize("crop, age", [("cherrytomato", 75), ("capsicum", 80)])
 def test_vegetative_to_gallery_age(crop, age):
-    """No (crop, gallery age, Context seed 1..8) builds a peduncle, flower or fruit: updateInflorescence (W3-D)
-    would raise."""
+    """No (crop, gallery age, Context seed 1..8) builds a peduncle, flower or fruit."""
     for seed in range(1, 9):
         s, pa = _pa(crop, seed)
         pid = pa.buildPlantInstanceFromLibrary((0, 0, 0), age)
-        assert pa.plant_instances[pid].current_age == f32(age) and not pa.inflorescence_geometry_is_stub
+        assert pa.plant_instances[pid].current_age == f32(age)
+        assert not any(b.peduncle_objIDs or b.inflorescence_objIDs for sh in pa.plant_instances[pid].shoot_tree
+                       for ph in sh.phytomers for p in ph.floral_buds for b in p)
 
 
 def _probe_matches():
@@ -105,7 +106,7 @@ def _patch_source(monkeypatch, module, attr, old, new, owner=None):
     """Recompile ``module`` with one source edit; install ``attr`` (of class ``owner``, or of the module) from the
     edited copy. Hook bindings made by the re-executed module are restored by ``monkeypatch``."""
     for name in ("CherryTomatoPhytomerCreationFunction", "CherryTomatoPhytomerCallbackFunction",
-                 "CapsicumPhytomerCreationFunction", "CapsicumFruitPrototype"):
+                 "CapsicumPhytomerCreationFunction", "CapsicumFruitPrototype", "AlmondFlowerPrototype"):
         h = getattr(hooks, name)
         monkeypatch.setattr(h, "impl", h.impl)
     src = open(module.__file__).read()
@@ -121,7 +122,8 @@ def _patch_source(monkeypatch, module, attr, old, new, owner=None):
 
 MUTATIONS = ["cherry_leaf_scale_float", "cherry_inode_scale_float", "capsicum_inode_scale_double",
              "capsicum_keeps_first_leaves", "remove_leaf_drops_centerline", "capsicum_secondary_creation_function",
-             "shed_petiole_offsets_from_tip", "cherry_lateral_type_is_mainstem"]
+             "shed_petiole_offsets_from_tip", "cherry_lateral_type_is_mainstem", "capsicum_fruit_no_randn",
+             "cherry_pruning_height"]
 
 
 @pytest.mark.parametrize("mutation", MUTATIONS)
@@ -174,3 +176,11 @@ def test_mutations_are_caught(monkeypatch, mutation):
                            'sp.defineChildShootTypes(["mainstem"], [1.0])')
         monkeypatch.setitem(L.SHOOT_INITIALIZERS, "cherrytomato", fn)
         assert _fails("plantarch.w4a.cherrytomato.load", range(2))
+    elif mutation == "capsicum_fruit_no_randn":
+        # CapsicumFruitPrototype's randn() picks the colour and is a Context draw per prototype
+        _patch_source(monkeypatch, CAP, "_capsicum_fruit_prototype", "if float(context.randn()) < 0.4:", "if True:")
+        assert _fails("plantarch.w4a.capsicum.reproductive", range(8, 10))
+    elif mutation == "cherry_pruning_height":
+        _patch_source(monkeypatch, CT, "_cherry_tomato_phytomer_callback", "pruning_height = f32(1)",
+                      "pruning_height = f32(0.8)")
+        assert _fails("plantarch.w4a.cherrytomato.reproductive", range(8, 10))

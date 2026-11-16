@@ -174,17 +174,30 @@ def _capsicum_phytomer_creation(phytomer, shoot_node_index, parent_shoot_node_in
         phytomer.scaleInternodeMaxLength(inode_scale)
 
 
+def _load_obj_polymesh(context, asset_path: str) -> int:
+    """``loadOBJ(resolvePluginAsset(asset), (0,0,0), 0, nullrotation, RGB::black, "ZUP", true)`` +
+    ``addPolymeshObject`` (height 0: unscaled)."""
+    from .tomato_inflorescence import _plugin_asset
+    uuids = context.load_obj(_plugin_asset(asset_path), (0.0, 0.0, 0.0), height=0.0, rotation=(0.0, 0.0),
+                             color=(0.0, 0.0, 0.0), upaxis="ZUP", silent=True)
+    return context.add_polymesh_object(uuids)
+
+
 @CapsicumFruitPrototype.implement
 @ports("CapsicumFruitPrototype")
 def _capsicum_fruit_prototype(context, subdivisions, build_parameters=None):
-    """AS:1650-1660: ``randn() < 0.4`` picks the green or the red fruit OBJ (one Context ``randn`` per prototype),
-    loaded Z-up at the origin (height 0: unscaled, ``nullrotation``, ``RGB::black``), then ``addPolymeshObject``.
-    Not yet oracle-checked: no capsicum fruit sets before day 80 (see migration/notes/W4-A.md)."""
-    from ..leaf_prototype import _try_plugin_asset
+    """AS:1650-1660: ``randn() < 0.4`` picks the green or the red fruit OBJ (one Context ``randn`` per prototype:
+    10 per fruit cache fill for the capsicum)."""
     if float(context.randn()) < 0.4:
-        obj_file = _try_plugin_asset("assets/obj/CapsicumFruit_green.obj")
-    else:
-        obj_file = _try_plugin_asset("assets/obj/CapsicumFruit_red.obj")
-    uuids = context.load_obj(obj_file, origin=(0.0, 0.0, 0.0), height=0.0, rotation=(0.0, 0.0),
-                             color=(0.0, 0.0, 0.0), upaxis="ZUP", silent=True)
-    return context.add_polymesh_object(uuids)
+        return _load_obj_polymesh(context, "assets/obj/CapsicumFruit_green.obj")
+    return _load_obj_polymesh(context, "assets/obj/CapsicumFruit_red.obj")
+
+
+@ports("AlmondFlowerPrototype")
+def _almond_flower_prototype(context, subdivisions, flower_is_open, build_parameters=None):
+    """AS:934-938 (the almond's flower, used by the capsicum). Open and closed share the mesh."""
+    return _load_obj_polymesh(context, "assets/obj/AlmondFlower.obj")
+
+
+if AlmondFlowerPrototype.impl is None:          # an almond port binding the same hook wins; the code is the same
+    AlmondFlowerPrototype.implement(_almond_flower_prototype)

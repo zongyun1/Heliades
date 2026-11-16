@@ -21,12 +21,16 @@ Per crop ``C``:
   cherry tomato Context seeds 2 and 3 grow their first ``lateral`` shoot, capsicum its ``secondary`` shoots);
 * ``plantarch.w4a.C.gallery`` (ulp 0): a direct build at the gallery age (cherrytomato 75 days, capsicum 80) with
   the same observations, leaf vertices included;
-* ``plantarch.w4a.C.gallery_full`` (ulp 0): ``snapshot(include_hidden=True)`` of that build.
+* ``plantarch.w4a.C.gallery_full`` (ulp 0): ``snapshot(include_hidden=True)`` of that build;
+* ``plantarch.w4a.C.reproductive`` / ``reproductive_full`` (ulp 0, 16 = 8 Context seeds x 2 ages): direct builds with
+  flowers and fruit (``REPRODUCTIVE_AGES``: cherry tomato 90 and 110 days, the latter pruned by the callback;
+  capsicum 130 and 160 days): the observation above plus every peduncle / flower / fruit object (ID, primitives,
+  transform, vertices), and the full snapshot.
 
 **Inflorescence gate.** Flower and fruit geometry is W3-D. A (crop, age, seed) that builds an inflorescence runs
 only when ``heliades.plantarchitecture.inflorescence`` exists (:func:`inflorescence_ported`); otherwise the case
-returns the marker ``[-999]`` on both backends. No pair in this file is gated today: neither crop builds a peduncle,
-flower or fruit by day 80 (2-day sweep) or by its gallery age (direct build) for Context seeds 1..8 (cherry tomato:
+returns the marker ``[-999]`` on both backends. W3-D is merged, so nothing is gated: the reproductive cases run.
+The vegetative cases stay vegetative: neither crop builds a peduncle, flower or fruit by day 80 (2-day sweep) or by its gallery age (direct build) for Context seeds 1..8 (cherry tomato:
 initiation needs 50 days of bud time on node 8 or above; the first closed flowers come on day 82 of a direct build,
 Context seeds 3, 4, 6, 7; capsicum: fruit set needs 75 days of bud time, and the main stem's first six buds are dead). The
 inflorescence object count is part of every observation, so a wrong gate shows up as a failure, not a silent skip.
@@ -40,6 +44,9 @@ from .tools.draw_count import engine_calls
 
 CROPS = ("cherrytomato", "capsicum")
 GALLERY_AGE = {"cherrytomato": 75.0, "capsicum": 80.0}
+#: direct-build ages with flowers / fruit (W3-D): cherry tomato flowers from day 82 and is pruned below 1 m from day 101
+#: (the callback); capsicum sets its first fruit after day 123 (10 CapsicumFruitPrototype randn draws per cache fill)
+REPRODUCTIVE_AGES = {"cherrytomato": (90.0, 110.0), "capsicum": (130.0, 160.0)}
 STEP_AGES = tuple(range(2, 41, 2))       # module-level so tests can shorten the sweep
 STEP_DAYS = 2.0
 LATE_AGES = tuple(range(42, 81, 2))
@@ -154,6 +161,18 @@ def _gallery_full(B, s, crop):
     return B.snapshot(include_hidden=True)
 
 
+def _reproductive(B, s, crop, full):
+    ages = REPRODUCTIVE_AGES[crop]
+    seed, age = _seed(s % 8), ages[s // 8]
+    if not inflorescence_ported():
+        return [-999.0]
+    B.seed(seed)
+    B.w4a_full_build(crop, age)
+    if full:
+        return B.snapshot(include_hidden=True)
+    return _observe(B, seed, leaf_vertices=True) + [-108.0] + B.w4a_inflorescence_geometry()
+
+
 def _age0_full(B, s, crop):
     B.seed(_seed(s))
     B.w4a_full_build(crop, 0.0)
@@ -175,6 +194,8 @@ def _register(crop):
     case(p + "steps_late", tier="ulp", max_ulp=0, fuzz=8)(lambda B, s: _steps_late(B, s, crop))
     case(p + "gallery", tier="ulp", max_ulp=0, fuzz=8)(lambda B, s: _gallery(B, s, crop))
     case(p + "gallery_full", tier="ulp", max_ulp=0, fuzz=8)(lambda B, s: _gallery_full(B, s, crop))
+    case(p + "reproductive", tier="ulp", max_ulp=0, fuzz=16)(lambda B, s: _reproductive(B, s, crop, False))
+    case(p + "reproductive_full", tier="ulp", max_ulp=0, fuzz=16)(lambda B, s: _reproductive(B, s, crop, True))
 
 
 for _crop in CROPS:

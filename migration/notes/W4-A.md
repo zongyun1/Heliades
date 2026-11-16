@@ -15,7 +15,7 @@ Unported in Heliades (raised `NotImplementedError` or absent):
 | `writePlantStructureXML` `<shed_petiole>` (InputOutput.cpp:1020-1042) | capsicum (a phytomer with `petiole_length` empty, `petiole_vertices` kept) | raised |
 | `initializeCherryTomatoShoots`, `buildCherryTomatoPlant`, `CherryTomatoPhytomerCreationFunction`, `CherryTomatoPhytomerCallbackFunction` | cherry tomato | absent |
 | `initializeCapsicumShoots`, `buildCapsicumPlant`, `CapsicumPhytomerCreationFunction`, `CapsicumFruitPrototype` | capsicum | absent |
-| `AlmondFlowerPrototype` (capsicum's flower function), `TomatoFlowerPrototype` / `TomatoFruitPrototype` (cherry tomato) | inflorescence geometry | W3-D (never reached here, see the gate) |
+| `AlmondFlowerPrototype` (capsicum's flower function; its prototypes are built with the fruit cache even though capsicum flowers never open) | capsicum inflorescence | absent |
 
 Ported already but never exercised by a tomato case (now oracle-checked by the W4-A cases):
 
@@ -33,7 +33,7 @@ Ported already but never exercised by a tomato case (now oracle-checked by the W
 | file | contents | C++ |
 |---|---|---|
 | `library/cherrytomato.py` | `initializeCherryTomatoShoots`, `buildCherryTomatoPlant`, `CherryTomatoPhytomerCreationFunction`, `CherryTomatoPhytomerCallbackFunction` (hooks of the same names) | PL:6226-6359, AS:4111-4140 |
-| `library/capsicum.py` | `initializeCapsicumShoots`, `buildCapsicumPlant`, `CapsicumPhytomerCreationFunction`, `CapsicumFruitPrototype` (`randn() < 0.4` picks the green/red OBJ, `loadOBJ` Z-up, `addPolymeshObject`; not yet reached) | PL:3207-3331, AS:1650-1683 |
+| `library/capsicum.py` | `initializeCapsicumShoots`, `buildCapsicumPlant`, `CapsicumPhytomerCreationFunction`, `CapsicumFruitPrototype` (`randn() < 0.4` picks the green/red OBJ, `loadOBJ` height 0 Z-up, `addPolymeshObject`), `AlmondFlowerPrototype` (bound only if no almond port bound it first; same code) | PL:3207-3331, AS:1650-1683, AS:934-938 |
 | `phytomer.py` | `Phytomer.removeLeaf` | PA:6761-6803 |
 | `growth.py` | callback call (depth counter = `PhytomerCallbackScope`), leaf-lifespan `removeLeaf` | PA:11935-11938, 11959-11965 |
 | `plant.py` | `<shed_petiole>` with `<centerline_offsets>` and the floral buds of that petiole index | InputOutput.cpp:1020-1042 |
@@ -73,9 +73,12 @@ Context seeds 1..8 (case seed s -> Context seed s+1).
 | `plantarch.w4a.C.steps_late` | 8 seeds, ages 42..80 | 8 seeds, ages 42..80 | the same, continuing the sweep (cherry tomato laterals: Context seeds 2, 3; capsicum `secondary` shoots) |
 | `plantarch.w4a.C.gallery` | 8 seeds, direct build at 75 | 8 seeds, direct build at 80 | the same observations, leaf vertices included |
 | `plantarch.w4a.C.gallery_full` | 8 seeds, 75 | 8 seeds, 80 | `snapshot(include_hidden=True)` of that build |
+| `plantarch.w4a.C.reproductive` (after W3-D) | 8 seeds x 90, 110 d (flowers, fruit; 110 = callback pruning below 1 m) | 8 seeds x 130, 160 d (fruit) | the observation above + every peduncle / flower / fruit object (ID, UUIDs, 4x4, vertices) |
+| `plantarch.w4a.C.reproductive_full` | the same builds | the same builds | `snapshot(include_hidden=True)` incl. the hidden flower/fruit prototypes |
 | `plantarch.w4a.literal_probe` | ages 1, 3, 7, 13 | age 1 (8 nodes) | `addPlantInstance(pos, age)` + `addBaseStemShoot` + 2 days: the plant ages where the float and double forms of the creation functions' scales differ |
 
-Max ulp everywhere: 0. Gated pairs: none (`GATED` is empty). The gate: a (crop, age, seed) that would build
+Max ulp everywhere: 0. Gated pairs: none. W3-D was merged during this package: the reproductive pairs (cherry tomato
+90 / 110, capsicum 130 / 160, Context seeds 1..8) were added and run ungated. The gate: a (crop, age, seed) that would build
 inflorescence geometry returns `[-999]` on both sides unless `heliades.plantarchitecture.inflorescence` (W3-D) exists;
 the inflorescence object count is in every observation, so a pair that should have been gated fails instead of passing
 silently. Measured with the draws-only seam: no peduncle/flower/fruit up to day 80 (1- or 2-day steps) for either crop,
@@ -120,8 +123,10 @@ A library build never shows the first three either: phytomers are created only a
 - `<centerline_offsets>` measured from the tip instead of the base: `capsicum.steps`;
 - cherry tomato main stem with child type `mainstem` instead of `lateral`: `cherrytomato.load`.
 
-Not checkable against the oracle before W3-D: the cherry tomato callback (it only acts from day 101, by which time
-every seed flowers). Unit tests check that it runs once per phytomer per sub-step inside the callback depth, and that
+- `CapsicumFruitPrototype` without its `randn()` draw: `capsicum.reproductive`;
+- cherry tomato callback pruning below 0.8 m instead of 1 m: `cherrytomato.reproductive` (110 days).
+
+Unit tests also check that it runs once per phytomer per sub-step inside the callback depth, and that
 it removes the leaves of a node below 1 m once the plant is 101 days old.
 
 ## Discrepancies / findings
@@ -141,12 +146,11 @@ it removes the leaves of a node below 1 m once the plant is 101 days old.
    day 80 in 2-day steps, and none does in a direct build up to day 82 (4-day sub-steps). `steps_late` is the case
    that exercises the `lateral` type.
 5. **The draws-only inflorescence seam does not replay prototype-function draws.** `CapsicumFruitPrototype` makes a
-   Context `randn()` each time it builds a prototype (10 unique prototypes). W3-D must call the fruit/flower prototype
-   hooks in Helios order when the cache is filled, or the capsicum stream shifts at its first fruit (after day 80, so
-   no case here sees it). `AlmondFlowerPrototype` is not ported (almond's package or W3-D); capsicum's flowers never
-   build anyway (its flower initiation and opening thresholds are -1, so buds go straight to fruit set).
-6. `CapsicumFruitPrototype` is ported but never run: no fruit before day 123 for the seeds above (main-stem nodes 0-5
-   are dead, the node-6 bud is created about day 18 and a lateral's bud starts later; fruit set needs 75 days).
+   Context `randn()` each time it builds a prototype (10 per cache fill). With W3-D's real geometry this is exact
+   (`capsicum.reproductive`); the draws-only mode would drift for capsicum.
+6. Capsicum's flower prototypes (10 closed + 10 open `AlmondFlowerPrototype`) are built with the fruit cache even
+   though its flowers never appear (flower initiation / opening thresholds are -1: buds go straight to fruit set).
+   No fruit before day 123 for seeds 1..8 (main-stem nodes 0-5 are dead; fruit set needs 75 days of bud time).
 7. `buildCapsicumPlant` passes `shoot_types.at("mainstem").internode_length_max.val()` (constant, no draw) where the
    tomato passes a literal.
 
@@ -154,10 +158,9 @@ it removes the leaves of a node below 1 m once the plant is 101 days old.
 
 None new. (W3-B/W3-C's `powf` / `atan2f` in `core/vec.py` still stand.)
 
-## For W3-D
+## After W3-D
 
-- Capsicum: 10 unique inflorescence prototypes, distributed `peduncle.pitch`, `inflorescence.roll`,
-  `fruit_prototype_scale`; `CapsicumFruitPrototype` draws a `randn` (finding 5). Cherry tomato: tomato prototypes,
-  `fruit_gravity_factor_fraction = 0.2`.
-- When it lands, set `GATED` (or let `inflorescence_ported()` turn it off) and add flowering ages: cherry tomato 82+
-  (direct build), capsicum 123+.
+Merged mid-package; the reproductive cases exercise, beyond the tomato: 10 unique inflorescence prototypes,
+distributed `peduncle.pitch`, `inflorescence.roll` and `fruit_prototype_scale`, a non-zero
+`fruit_gravity_factor_fraction` (0.9 capsicum, 0.2 cherry tomato: the gravity rotation W3-D could not test), the
+`CapsicumFruitPrototype` draws, and the cherry tomato callback's pruning (`removeLeaf` from inside a callback).

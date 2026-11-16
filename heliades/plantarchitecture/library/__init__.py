@@ -47,3 +47,11 @@ def register_all(pa):
                               (lambda f=init: f(pa)) if init else _not_ported("shoot initializer", name),
                               (lambda pos, f=build: f(pa, pos)) if build else _not_ported("plant builder", name),
                               plant_type, beta if beta is not None else (0.0, 0.0))
+
+
+# W4-D: grapevine_VSP (shoot initializer + builder; its build parameters are registered by
+# PlantArchitecture.initializePlantModelRegistrations through build_parameters.register_build_parameters)
+from . import grapevine  # noqa: E402
+
+SHOOT_INITIALIZERS["grapevine_VSP"] = grapevine.initializeGrapevineVSPShoots
+PLANT_BUILDERS["grapevine_VSP"] = grapevine.buildGrapevineVSP

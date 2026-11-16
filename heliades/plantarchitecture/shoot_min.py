@@ -66,6 +66,13 @@ class PlantInstance:
         self.is_evergreen = False
         self.max_age = f32(999)
         self.minimum_leaf_texture_stage = 0
+        # W4-D: per-plant attraction points (H:3600-3613 defaults)
+        self.attraction_points_enabled = False
+        self.attraction_points = np.zeros((0, 3), f32)
+        self.attraction_cone_half_angle_rad = f32(80.0 * np.pi / 180.0)     # 80.f * M_PI / 180.f: double
+        self.attraction_cone_height = f32(0.1)
+        self.attraction_weight = f32(0.6)
+        self.attraction_obstacle_reduction_factor = f32(0.5)
 
 
 class Shoot:
@@ -198,8 +205,6 @@ class Shoot:
     def appendPhytomerInternal(self, internode_radius, internode_length_max, internode_length_scale_factor_fraction,
                                leaf_scale_factor_fraction, phytomer_parameters, prescribed_internode=None) -> int:
         from .phytomer import Phytomer
-        if prescribed_internode is not None:
-            raise NotImplementedError("appendPhytomerFromNodePositions is not ported")
         pa = self.plantarchitecture_ptr
         shoot_tree = pa.plant_instances[self.plantID].shoot_tree
         if not self.phytomers:
@@ -220,7 +225,7 @@ class Shoot:
         phytomer = Phytomer(phytomer_parameters, self, len(self.phytomers), parent_internode_axis, parent_petiole_axis,
                             internode_base_position, self.base_rotation, internode_radius, internode_length_max,
                             internode_length_scale_factor_fraction, leaf_scale_factor_fraction, self.rank, pa,
-                            self.context_ptr)
+                            self.context_ptr, prescribed_internode)
         shoot_tree[self.ID].phytomers.append(phytomer)
 
         for petiole in phytomer.axillary_vegetative_buds:
@@ -252,6 +257,13 @@ class Shoot:
             raise NotImplementedError("optional output object data is not ported")
         self._update_leaf_texture_stage(phytomer)
 
+        # W4-D: a prescribed internode keeps its measured length whatever the creation function does (PA:2193-2216)
+        index = len(shoot_tree[self.ID].phytomers) - 1
+        if prescribed_internode is not None:
+            measured_vertices = [v.copy() for v in shoot_tree[self.ID].shoot_internode_vertices[index]]
+            measured_radii = list(shoot_tree[self.ID].shoot_internode_radii[index])
+            measured_length_max = phytomer.internode_length_max
+
         fn = phytomer_parameters.phytomer_creation_function
         if fn is not None:
             pa.phytomer_callback_depth += 1
@@ -260,7 +272,24 @@ class Shoot:
                    pa.plant_instances[self.plantID].current_age)
             finally:
                 pa.phytomer_callback_depth -= 1
+
+        if prescribed_internode is not None and (phytomer.internode_length_max != measured_length_max
+                                                 or phytomer.current_internode_scale_factor != 1):
+            prescribed_shoot = shoot_tree[self.ID]
+            prescribed_shoot.shoot_internode_vertices[index] = measured_vertices
+            prescribed_shoot.shoot_internode_radii[index] = measured_radii
+            phytomer.internode_length_max = measured_length_max
+            phytomer.current_internode_scale_factor = f32(1)
+            prescribed_shoot.updateShootNodes(True)
         return len(self.phytomers) - 1
+
+    @ports("Shoot::appendPhytomerFromNodePositions")
+    def appendPhytomerFromNodePositions(self, prescribed_internode, phytomer_parameters) -> int:
+        """PA:2011-2015 (W4-D)."""
+        from ..core import vec as V
+        length = V.magnitude(np.asarray(prescribed_internode.tip_node, f32) - np.asarray(prescribed_internode.base_node, f32))
+        return self.appendPhytomerInternal(prescribed_internode.base_radius, length, f32(1), f32(1), phytomer_parameters,
+                                           prescribed_internode)
 
     @staticmethod
     def _parent_petiole_axis(parent, parent_internode_axis, petiole_index):
@@ -503,6 +532,9 @@ def init_plant_state(pa):
     pa.solid_obstacle_pruning_enabled = False
     pa.inflorescence_geometry_draws_only = False   # opt-in: replay updateInflorescence's draws only (no W3-D geometry)
     pa.inflorescence_geometry_is_stub = False      # set once a draws-only inflorescence was 'built'
+    # W4-D: set by an attraction-steered phytomer; forces the per-step Context update (force_update_on_collision)
+    pa.collision_avoidance_applied = False
+    pa.force_update_on_collision = True
 
 
 @ports("PlantArchitecture::addPlantInstance")
@@ -583,6 +615,155 @@ def setPlantPhenologicalThresholds(pa, plantID, time_to_dormancy_break, time_to_
     p.dd_to_dormancy = f32(time_to_dormancy)
     p.max_leaf_lifespan = f32(1e6) if f32(max_leaf_lifespan) == 0 else f32(max_leaf_lifespan)
     p.is_evergreen = bool(is_evergreen)
+
+
+# ---- W4-D: prescribed (trained) shoots, attraction points, leaf removal ----------------------------
+
+class PrescribedInternode:
+    """PrescribedInternode (H): the measured end nodes and radii of one internode."""
+    __slots__ = ("base_node", "tip_node", "base_radius", "tip_radius")
+
+    def __init__(self, base_node, tip_node, base_radius, tip_radius):
+        self.base_node = np.asarray(base_node, f32).reshape(3).copy()
+        self.tip_node = np.asarray(tip_node, f32).reshape(3).copy()
+        self.base_radius = f32(base_radius)
+        self.tip_radius = f32(tip_radius)
+
+
+@ports("PlantArchitecture::addShootFromNodePositions", "PlantArchitecture::prescribedShoot")
+def addShootFromNodePositions(pa, plantID, parent_shoot_ID, parent_node_index, internode_node_positions, internode_radii,
+                              shoot_type_label, growth_shoot_type_label=None, petiole_index=0,
+                              continues_parent_axis=False, caller="addShootFromNodePositions") -> int:
+    """PA:7286-7465 (``prescribedShoot``)."""
+    from ..core import vec as V
+    from .params import make_AxisRotation
+    if growth_shoot_type_label is None:
+        growth_shoot_type_label = shoot_type_label
+    if plantID not in pa.plant_instances:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): Plant with ID of {plantID} does not exist.")
+    inst = pa.plant_instances[plantID]
+    if shoot_type_label not in inst.shoot_types_snapshot:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): Shoot type with label of {shoot_type_label} "
+                                     "does not exist.")
+    if growth_shoot_type_label not in inst.shoot_types_snapshot:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): Growth shoot type with label of "
+                                     f"{growth_shoot_type_label} does not exist.")
+    nodes = [np.asarray(p, f32).reshape(3).copy() for p in internode_node_positions]
+    radii = [f32(r) for r in internode_radii]
+    if len(nodes) < 2:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): At least 2 node positions are required to "
+                                     f"define a shoot, but {len(nodes)} were given.")
+    if len(radii) != len(nodes):
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): Number of radii ({len(radii)}) must equal the "
+                                     f"number of node positions ({len(nodes)}).")
+    for node, r in enumerate(radii):
+        if r <= 0:
+            raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): Internode radius at node {node} is "
+                                         f"{float(r):f}, but all radii must be greater than zero.")
+    for node in range(len(nodes) - 1):
+        if V.magnitude(nodes[node + 1] - nodes[node]) < f32(1e-9):
+            raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): Node positions {node} and {node + 1} are "
+                                         "coincident, which does not define an internode axis.")
+    tree = inst.shoot_tree
+    shoot_parameters = inst.shoot_types_snapshot[shoot_type_label].copy()
+    validateShootTypes(shoot_parameters, inst.shoot_types_snapshot)
+    node_count = len(nodes) - 1
+    if node_count > shoot_parameters.max_nodes.val():
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): Cannot add shoot with {node_count} nodes since "
+                                     f"the specified max node number is {shoot_parameters.max_nodes.val()}.")
+    rank = 0
+    shoot_base_position = nodes[0].copy()
+    if parent_shoot_ID >= 0:
+        if parent_shoot_ID >= len(tree):
+            raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): Parent with ID of {parent_shoot_ID} does "
+                                         "not exist.")
+        parent = tree[parent_shoot_ID]
+        if len(parent.phytomers) <= parent_node_index:
+            raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): Parent shoot does not have a node "
+                                         f"{parent_node_index}.")
+        if continues_parent_axis:
+            raise NotImplementedError("appendShootFromNodePositions (axis continuation) is not ported")
+        attachment_node = parent.shoot_internode_vertices[parent_node_index][-1]
+        parent_radius = parent.phytomers[parent_node_index].getInternodeRadius(f32(1))
+        attachment_distance = V.magnitude(nodes[0] - attachment_node)
+        attachment_tolerance = max(f32(1e-3), f32(f32(2) * parent_radius))
+        if attachment_distance > attachment_tolerance:
+            raise PlantArchitectureError(f"ERROR (PlantArchitecture::{caller}): The first node position is "
+                                         f"{float(attachment_distance):f} m from node {parent_node_index} of shoot "
+                                         f"{parent_shoot_ID}, which exceeds the attachment tolerance of "
+                                         f"{float(attachment_tolerance):f} m. The shoot would not be connected to its parent.")
+        rank = parent.rank + 1
+        parent_internode_axis = parent.phytomers[parent_node_index].getInternodeAxisVector(f32(1))
+        axis_vector = childShootOutwardAxis(parent, parent_node_index, petiole_index, parent_internode_axis,
+                                            make_AxisRotation(0, 0, 0))
+        shoot_base_position = attachment_node + (f32(0.9) * axis_vector) * parent_radius
+    base_shift = shoot_base_position - nodes[0]
+    total_length = f32(0)
+    for node in range(node_count):
+        total_length = f32(total_length + V.magnitude(nodes[node + 1] - nodes[node]))
+    mean_internode_length = f32(total_length / f32(node_count))
+    shootID = len(tree)
+    shoot = Shoot(plantID, shootID, parent_shoot_ID, parent_node_index, petiole_index, rank, shoot_base_position,
+                  make_AxisRotation(0, 0, 0), node_count, mean_internode_length, shoot_parameters, shoot_type_label, pa)
+    shoot.is_axis_continuation = False
+    tree.append(shoot)
+    shoot.growth_state.geometry_is_prescribed = True
+    if growth_shoot_type_label != shoot_type_label:
+        growth_parameters = inst.shoot_types_snapshot[growth_shoot_type_label].copy()
+        validateShootTypes(growth_parameters, inst.shoot_types_snapshot)
+        shoot.growth_state.growth_type_label = growth_shoot_type_label
+        shoot.growth_state.max_nodes_growth_cap = max(node_count, int(growth_parameters.max_nodes.val()))
+        shoot.growth_state.max_nodes_per_season_growth_cap = int(growth_parameters.max_nodes_per_season.val())
+        shoot.gravitropic_curvature = growth_parameters.gravitropic_curvature.val()
+    for node in range(node_count):
+        pi = PrescribedInternode(nodes[node] + base_shift, nodes[node + 1] + base_shift, radii[node], radii[node + 1])
+        shoot.appendPhytomerFromNodePositions(pi, shoot_parameters.phytomer_parameters)
+    return shootID
+
+
+@ports("PlantArchitecture::removeShootLeaves")
+def removeShootLeaves(pa, plantID, shootID):
+    """PA:9998-10012."""
+    if plantID not in pa.plant_instances:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::removePlantLeaves): Plant with ID of {plantID} does not "
+                                     "exist.")
+    tree = pa.plant_instances[plantID].shoot_tree
+    if shootID >= len(tree):
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::removeShootLeaves): Shoot with ID of {shootID} does not "
+                                     "exist.")
+    for phytomer in tree[shootID].phytomers:
+        phytomer.removeLeaf()
+
+
+@ports("PlantArchitecture::setPlantAttractionPoints")
+def setPlantAttractionPoints(pa, plantID, attraction_points, view_half_angle_deg=80.0, look_ahead_distance=0.1,
+                             attraction_weight=0.6, obstacle_reduction_factor=0.75):
+    """PA:13556-13582."""
+    from ..core import vec as V
+    if plantID not in pa.plant_instances:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::setPlantAttractionPoints): Plant with ID {plantID} does "
+                                     "not exist.")
+    view_half_angle_deg, look_ahead_distance = f32(view_half_angle_deg), f32(look_ahead_distance)
+    obstacle_reduction_factor = f32(obstacle_reduction_factor)
+    if view_half_angle_deg <= 0 or view_half_angle_deg > 180:
+        raise PlantArchitectureError("ERROR (PlantArchitecture::setPlantAttractionPoints): view_half_angle_deg must be "
+                                     "between 0 and 180 degrees.")
+    if look_ahead_distance <= 0:
+        raise PlantArchitectureError("ERROR (PlantArchitecture::setPlantAttractionPoints): look_ahead_distance must be "
+                                     "greater than 0.")
+    if len(attraction_points) == 0:
+        raise PlantArchitectureError("ERROR (PlantArchitecture::setPlantAttractionPoints): attraction_points cannot be "
+                                     "empty.")
+    if obstacle_reduction_factor < 0 or obstacle_reduction_factor > 1:
+        raise PlantArchitectureError("ERROR (PlantArchitecture::setPlantAttractionPoints): obstacle_reduction_factor must "
+                                     "be between 0 and 1.")
+    plant = pa.plant_instances[plantID]
+    plant.attraction_points_enabled = True
+    plant.attraction_points = np.asarray(attraction_points, f32).reshape(-1, 3).copy()
+    plant.attraction_cone_half_angle_rad = V.deg2rad(view_half_angle_deg)
+    plant.attraction_cone_height = look_ahead_distance
+    plant.attraction_weight = f32(attraction_weight)
+    plant.attraction_obstacle_reduction_factor = obstacle_reduction_factor
 
 
 __all__ = ["Shoot", "PlantInstance", "ShootGrowthState", "init_plant_state", "addPlantInstance", "addBaseStemShoot",

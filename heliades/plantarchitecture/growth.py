@@ -262,7 +262,12 @@ def _advance_plant_one_step(pa, plantID, dt):
             phytomer.age = f32(phytomer.age + dt)
             shoot._update_leaf_texture_stage(phytomer)
             if phytomer.phytomer_parameters.phytomer_callback_function is not None:
-                raise NotImplementedError("phytomer callback functions are not ported")
+                # W4-D: PhytomerCallbackScope; structural operations inside it are not ported (deferred prunes)
+                pa.phytomer_callback_depth += 1
+                try:
+                    phytomer.phytomer_parameters.phytomer_callback_function(phytomer)
+                finally:
+                    pa.phytomer_callback_depth -= 1
 
         # ---- phenological transitions
         if shoot.isdormant and inst.time_since_dormancy >= inst.dd_to_dormancy_break:
@@ -336,7 +341,12 @@ def _advance_plant_one_step(pa, plantID, dt):
             raise NotImplementedError("epicormic shoots are not ported")
 
     # flushDeferredPrunes (nothing queued), updatePlantLeafAngleDistributionTracking (off)
-    tree[0].updateShootNodes(False)
+    # W4-D: an attraction-steered phytomer forces the Context update (PA:12312-12326; collision detection is off)
+    if pa.collision_avoidance_applied and pa.force_update_on_collision:
+        tree[0].updateShootNodes(True)
+    else:
+        tree[0].updateShootNodes(False)
+    pa.collision_avoidance_applied = False
 
     for shoot in tree:
         if not ctx.does_object_exist(shoot.internode_tube_objID):

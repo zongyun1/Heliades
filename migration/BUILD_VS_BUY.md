@@ -1,5 +1,36 @@
 # Port, rebuild, or use a library: per-module decisions
 
+## Scope decision (2026-11-16): port only what the goals need
+
+The project goals are:
+- sim-ready crop assets;
+- deformable simulation;
+- large-scale RL;
+- an agent-generated dataset.
+
+Only two parts of Helios serve these goals, so only they are ported:
+
+1. **core geometry**: RNG, primitives, compound objects, textures/UV, copy and transform, OBJ.
+2. **plantarchitecture**, for the crops we use (tomato first, then the 8-crop gallery). The
+   carbohydrate and nitrogen models are skipped unless they are on by default and change geometry.
+
+**Not ported:**
+- radiation, camera, syntheticannotation;
+- photosynthesis, stomatalconductance, boundarylayerconductance, energybalance, planthydraulics, leafoptics;
+- solarposition, lidar, aeriallidar, soiltransport, parameteroptimization;
+- weberpenntree, canopygenerator;
+- visualizer, projectbuilder.
+
+Dataset images are rendered by our own renderer (Warp, Mitsuba 3, or Isaac Sim reading USD). When
+someone needs Helios physiology or radiation, they export the Heliades scene back into a Helios
+Context and run Helios.
+
+Positioning: Heliades is a *simulation-first reimplementation of Helios's plant-growth model*.
+It is not a full Helios replacement.
+
+The table below is kept as the reference for "if we ever port it, here is how". Rows outside the
+scope above are **not scheduled**.
+
 Baseline Helios 1.3.98. Line counts are C++ source excluding tests and third-party code.
 Every library listed is MIT, BSD or Apache, so all are compatible with LGPL-2.1. GPL packages
 (pysolar, phydrus) are excluded.

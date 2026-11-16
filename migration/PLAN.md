@@ -50,9 +50,26 @@ Work is split according to the W1-D breakdown. Expected packages:
 The acceptance case is `plantarchitecture.tomato`: ages {10, 30, 50, 75} × seeds {0..7}, at ulp
 tier.
 
-## Wave 4
+## Wave 4 (last porting wave)
 
-- Remaining species from the 8-crop gallery.
+- Remaining species from the 8-crop gallery: cherry tomato, capsicum, strawberry, bean, soybean,
+  grapevine_VSP and maize.
 - `planttwin` conversion reads Heliades directly, with no PyHelios at runtime.
-- USD and simulation.
+- USD export and simulation.
 - The first TomatoWUR structural evaluation.
+
+**Porting ends here** (target: mid-January 2027). Per the scope decision in `BUILD_VS_BUY.md`,
+radiation, camera, physiology, LiDAR, soil and the other plugins are not ported.
+
+## Parallel tracks (not porting)
+
+| track | packages | status |
+|---|---|---|
+| **B: deformable simulation** | B1 tree direct solver (CPU) → B2 GPU (Warp) batched → B3 leaf shells + contact + pedicel breakage → B4 inverse statics → B5 validation against Newton/IPC reference | B1 running |
+| **C: agentic generation + dataset** | minimal calibration loop on TomatoWUR → generator-code self-improvement → dataset generation + benchmarks + datasheet | starts when the Heliades tomato passes parity |
+| **D: large-scale RL** | robot coupling (Newton/MuJoCo) → task envs (leaf pushing, harvesting, pruning) with domain randomization → training at scale | starts after B2; needs cluster GPUs |
+
+Target venues:
+- dataset: NeurIPS 2027 D&B (~May 2027);
+- solver: SIGGRAPH Asia 2027 (~May 2027);
+- RL benchmark: CoRL 2027 / ICRA 2028.

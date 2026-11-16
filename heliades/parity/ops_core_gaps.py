@@ -459,7 +459,7 @@ def _(B, label):
     col = c.getMaterialColor(label)
     tex = c.getMaterialTexture(label)
     return [1, col.r, col.g, col.b, col.a, tex.replace("\\", "/").rsplit("/", 1)[-1],
-            sorted(c.getPrimitivesUsingMaterial(label))]
+            [int(u) for u in c.getPrimitivesUsingMaterial(label)]]      # Helios's (hash-map) order
 
 
 @op("material_query", "heliades")
@@ -474,7 +474,7 @@ def _(B, label):
 
 @op("list_materials", "helios")
 def _(B):
-    return sorted(B.ctx.listMaterials())
+    return list(B.ctx.listMaterials())          # Helios's own order (std::map: bytewise by label)
 
 
 @op("list_materials", "heliades")

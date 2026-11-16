@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Ported from Helios core (Context.cpp "MATERIAL MANAGEMENT METHODS", Context_primitive.cpp
 # Primitive::setColor, Context_object.cpp keepNamedTubeMaterial; Copyright (C) 2016-2026 Brian Bailey).
-"""A minimal material table (mixed into Scene).
+"""The Context material table (mixed into Scene). It is the only one: loadOBJ (fileio.py) registers
+its MTL materials and assigns them through the methods below.
 
 In Helios a primitive's color and texture live in its *material*. Every new primitive gets an
 automatic material, labelled ``"__auto_<hash of its appearance>"`` and shared by every primitive of
@@ -18,8 +19,13 @@ Reference counts are kept incrementally as in Helios (creation, copy, delete, re
 Covered: material IDs and labels (automatic labels hash exactly as libstdc++'s ``std::hash`` does, so
 ``getPrimitiveMaterialLabel`` matches Helios), color, texture (with the solid-fraction update), texture
 color override flag, two-sided flag, reference counts, rename, delete, assignment to primitives and
-objects, and ``setPrimitiveColor``. Not covered: normal/bump maps, material data, color textures,
-spectral textures and the revision counters.
+objects, ``setPrimitiveColor``, ``override/usePrimitiveTextureColor`` (also run by ``copyPrimitive``
+on a copy whose material has the override), and the iteration order of Helios's primitive hash map
+(``UnorderedUIntMapOrder``). That order gives ``getPrimitivesUsingMaterial`` its order, and gives the
+users of a re-textured material the order in which their solid fractions are computed. The
+solid-fraction cache makes that second order observable. ``listMaterials`` is bytewise sorted, as
+Helios's ``std::map`` is. Not covered: normal/bump maps, material data, color textures, spectral
+textures and the revision counters.
 """
 from __future__ import annotations
 
@@ -104,6 +110,154 @@ def _uuid_list(x) -> list[int]:
     return [int(x)] if np.isscalar(x) else [int(i) for i in x]
 
 
+# ---- iteration order of Context::primitives ------------------------------------------------------
+#
+# Helios keeps its primitives in a std::unordered_map<uint, Primitive*>, and the material code walks it:
+# getPrimitivesUsingMaterial returns its users in that order, and markMaterialPrimitivesModified
+# (setMaterialTexture) recomputes their solid fractions in that order. The order is observable
+# beyond the returned list. Texture::getSolidFraction caches by UVs rounded to pixels, so of two
+# users whose UVs round alike, the first one visited fixes the value both get. The model below follows
+# libstdc++ (GCC >= 11, the oracle's toolchain) exactly. std::hash<uint> is the identity. The table
+# is a singly linked list. A bucket points at the node before its first node. A new key goes to the
+# front of its bucket, or to the front of the list when its bucket is empty. _Prime_rehash_policy
+# has max load factor 1 and growth factor 2, and gives 13 buckets on the first insertion. A rehash
+# relinks the nodes in list order.
+
+_FAST_BKT = (2, 2, 2, 3, 5, 5, 7, 7, 11, 11, 11, 11, 13, 13)
+_PRIME_LIST = (     # std::__detail::__prime_list up to 2**32 (libstdc++ hashtable-aux.cc)
+    2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 103, 109,
+    113, 127, 137, 139, 149, 157, 167, 179, 193, 199, 211, 227, 241, 257, 277, 293, 313, 337, 359, 383, 409,
+    439, 467, 503, 541, 577, 619, 661, 709, 761, 823, 887, 953, 1031, 1109, 1193, 1289, 1381, 1493, 1613, 1741,
+    1879, 2029, 2179, 2357, 2549, 2753, 2971, 3209, 3469, 3739, 4027, 4349, 4703, 5087, 5503, 5953, 6427, 6949,
+    7517, 8123, 8783, 9497, 10273, 11113, 12011, 12983, 14033, 15173, 16411, 17749, 19183, 20753, 22447, 24281,
+    26267, 28411, 30727, 33223, 35933, 38873, 42043, 45481, 49201, 53201, 57557, 62233, 67307, 72817, 78779,
+    85229, 92203, 99733, 107897, 116731, 126271, 136607, 147793, 159871, 172933, 187091, 202409, 218971, 236897,
+    256279, 277261, 299951, 324503, 351061, 379787, 410857, 444487, 480881, 520241, 562841, 608903, 658753,
+    712697, 771049, 834181, 902483, 976369, 1056323, 1142821, 1236397, 1337629, 1447153, 1565659, 1693859,
+    1832561, 1982627, 2144977, 2320627, 2510653, 2716249, 2938679, 3179303, 3439651, 3721303, 4026031, 4355707,
+    4712381, 5098259, 5515729, 5967347, 6456007, 6984629, 7556579, 8175383, 8844859, 9569143, 10352717,
+    11200489, 12117689, 13109983, 14183539, 15345007, 16601593, 17961079, 19431899, 21023161, 22744717,
+    24607243, 26622317, 28802401, 31160981, 33712729, 36473443, 39460231, 42691603, 46187573, 49969847,
+    54061849, 58488943, 63278561, 68460391, 74066549, 80131819, 86693767, 93793069, 101473717, 109783337,
+    118773397, 128499677, 139022417, 150406843, 162723577, 176048909, 190465427, 206062531, 222936881,
+    241193053, 260944219, 282312799, 305431229, 330442829, 357502601, 386778277, 418451333, 452718089,
+    489790921, 529899637, 573292817, 620239453, 671030513, 725980837, 785430967, 849749479, 919334987,
+    994618837, 1076067617, 1164186217, 1259520799, 1362662261, 1474249943, 1594975441, 1725587117, 1866894511,
+    2019773507, 2185171673, 2364114217, 2557710269, 2767159799, 2993761039, 3238918481, 3504151727, 3791104843,
+    4101556399, 4294967291,
+)
+_BB = -1            # _M_before_begin
+
+
+class UnorderedUIntMapOrder:
+    """Iteration order of a libstdc++ ``std::unordered_map<unsigned, T>`` under insert / erase."""
+
+    def __init__(self):
+        self.nxt: dict[int, int | None] = {_BB: None}
+        self.buckets: list[int | None] = [None]       # single bucket of a default-constructed table
+        self.count = 0
+        self.next_resize = 0
+
+    def _next_bkt(self, n: int) -> int:
+        """_Prime_rehash_policy::_M_next_bkt."""
+        if n < len(_FAST_BKT):
+            if n == 0:
+                return 1
+            self.next_resize = _FAST_BKT[n]
+            return _FAST_BKT[n]
+        lo, hi = 6, len(_PRIME_LIST) - 1               # std::lower_bound(__prime_list + 6, __last_prime, n)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if _PRIME_LIST[mid] < n:
+                lo = mid + 1
+            else:
+                hi = mid
+        self.next_resize = _PRIME_LIST[lo]
+        return _PRIME_LIST[lo]
+
+    def _need_rehash(self, n_ins: int = 1):
+        """_Prime_rehash_policy::_M_need_rehash; None or the new bucket count."""
+        n_bkt, n_elt = len(self.buckets), self.count
+        if n_elt + n_ins > self.next_resize:
+            min_bkts = float(max(n_elt + n_ins, 0 if self.next_resize else 11))
+            if min_bkts >= n_bkt:
+                return self._next_bkt(max(int(min_bkts) + 1, n_bkt * 2))
+            self.next_resize = n_bkt
+        return None
+
+    def _rehash(self, n: int):
+        """_M_rehash_aux (unique keys)."""
+        nb: list[int | None] = [None] * n
+        nxt = self.nxt
+        p = nxt[_BB]
+        nxt[_BB] = None
+        bbegin_bkt = 0
+        while p is not None:
+            following = nxt[p]
+            b = p % n
+            if nb[b] is None:
+                nxt[p] = nxt[_BB]
+                nxt[_BB] = p
+                nb[b] = _BB
+                if nxt[p] is not None:
+                    nb[bbegin_bkt] = p
+                bbegin_bkt = b
+            else:
+                nxt[p] = nxt[nb[b]]
+                nxt[nb[b]] = p
+            p = following
+        self.buckets = nb
+
+    def insert(self, k: int):
+        """operator[] on a key not yet present (_M_insert_unique_node + _M_insert_bucket_begin)."""
+        k = int(k)
+        n = self._need_rehash()
+        if n is not None:
+            self._rehash(n)
+        nxt, bk = self.nxt, self.buckets
+        b = k % len(bk)
+        if bk[b] is not None:
+            nxt[k] = nxt[bk[b]]
+            nxt[bk[b]] = k
+        else:
+            nxt[k] = nxt[_BB]
+            nxt[_BB] = k
+            if nxt[k] is not None:
+                bk[nxt[k] % len(bk)] = k
+            bk[b] = _BB
+        self.count += 1
+
+    def erase(self, k: int):
+        """erase(key) of a present key (_M_erase with _M_remove_bucket_begin)."""
+        k = int(k)
+        nxt, bk = self.nxt, self.buckets
+        n = len(bk)
+        b = k % n
+        prev = bk[b]
+        while nxt[prev] != k:
+            prev = nxt[prev]
+        following = nxt[k]
+        if prev == bk[b]:
+            if following is None or following % n != b:
+                if following is not None:
+                    bk[following % n] = bk[b]
+                if bk[b] == _BB:
+                    nxt[_BB] = following
+                bk[b] = None
+        elif following is not None and following % n != b:
+            bk[following % n] = prev
+        nxt[prev] = following
+        del nxt[k]
+        self.count -= 1
+
+    def __iter__(self):
+        nxt = self.nxt
+        p = nxt[_BB]
+        while p is not None:
+            yield p
+            p = nxt[p]
+
+
 class MaterialsMixin:
     """Context material API (subset); ``_init_materials`` is called by ``Scene.__init__``."""
 
@@ -113,6 +267,7 @@ class MaterialsMixin:
         self.current_material_id = 1
         self.materials_renamed_from_automatic: set[int] = set()
         self._auto_label_cache: dict[tuple, str] = {}
+        self.primitive_order = UnorderedUIntMapOrder()   # Context::primitives iteration order (Scene keeps it)
 
     # ---- internals ---------------------------------------------------------------------------
 
@@ -189,7 +344,8 @@ class MaterialsMixin:
     def _refresh_material_users(self, mid: int, texture_changed: bool):
         if self.materials[mid].reference_count == 0:
             return
-        for p in self.primitives.values():
+        for u in self.primitive_order:                  # Helios's hash order: it fixes the solid-fraction cache
+            p = self.primitives[u]
             if getattr(p, "material_id", None) == mid:
                 self._sync_appearance(p)
                 if texture_changed:
@@ -246,10 +402,16 @@ class MaterialsMixin:
         if i is not None and i in self.materials:
             self.materials[i].reference_count -= 1
 
+    @ports("Context::copyPrimitive (material part)")
     def _material_reference_copied(self, p):
+        """The copy shares the source's material (one more user). Helios then calls overrideTextureColor()
+        on the copy when that material has the texture-color override: a no-op for an automatic material,
+        but a shared named one is copied (``__copy_``), so the copy leaves it."""
         i = getattr(p, "material_id", None)
         if i is not None and i in self.materials:
             self.materials[i].reference_count += 1
+            if self.materials[i].texture_color_overridden:
+                self.override_primitive_texture_color(p.uuid)
 
     # ---- public API --------------------------------------------------------------------------
 
@@ -277,7 +439,8 @@ class MaterialsMixin:
 
     @ports("Context::listMaterials")
     def list_materials(self) -> list[str]:
-        """Named (and copied) materials; sorted, as Helios iterates an unordered_map."""
+        """Named (and copied) materials, in Helios's order: material_label_to_id is a std::map, so the
+        labels come bytewise sorted (UTF-8 byte order is code-point order, i.e. Python's str order)."""
         return sorted(lbl for lbl in self.material_label_to_id
                       if lbl != DEFAULT_MATERIAL_LABEL and not lbl.startswith("__auto_"))
 
@@ -402,9 +565,9 @@ class MaterialsMixin:
 
     @ports("Context::getPrimitivesUsingMaterial")
     def get_primitives_using_material(self, label: str) -> list[int]:
-        """Sorted by UUID (Helios iterates its primitive hash map)."""
+        """In Helios's order: the iteration order of its std::unordered_map of primitives."""
         i = self._material_id(label)
-        return sorted(u for u, p in self.primitives.items() if self._primitive_material_id(p) == i)
+        return [u for u in self.primitive_order if self._primitive_material_id(self.primitives[u]) == i]
 
     @ports("Context::setPrimitiveColor(uint,const RGBcolor&)", "Context::setPrimitiveColor(const std::vector<uint>&,const RGBcolor&)",
            "Context::setPrimitiveColor(uint,const RGBAcolor&)", "Context::setPrimitiveColor(const std::vector<uint>&,const RGBAcolor&)",
@@ -417,6 +580,30 @@ class MaterialsMixin:
                 raise ValueError(f"ERROR (Context::setPrimitiveColor): UUID of {u} does not exist in the Context.")
             m = self.materials[self._primitive_material_id(p)]
             self._set_primitive_appearance(p, _rgba(color), m.texture_file, m.texture_color_overridden)
+
+    @ports("Context::overridePrimitiveTextureColor(uint)", "Context::overridePrimitiveTextureColor(const std::vector<uint>&)",
+           "Primitive::overrideTextureColor")
+    def override_primitive_texture_color(self, uuids):
+        """The primitive's appearance with the texture-color override set (its color replaces the
+        texture's RGB, the texture keeps the shape)."""
+        self._set_primitive_texture_override(uuids, True, "overridePrimitiveTextureColor")
+
+    @ports("Context::usePrimitiveTextureColor(uint)", "Context::usePrimitiveTextureColor(const std::vector<uint>&)",
+           "Primitive::useTextureColor")
+    def use_primitive_texture_color(self, uuids):
+        self._set_primitive_texture_override(uuids, False, "usePrimitiveTextureColor")
+
+    def _set_primitive_texture_override(self, uuids, override: bool, who: str):
+        for u in _uuid_list(uuids):
+            p = self.primitives.get(u)
+            if p is None:
+                raise ValueError(f"ERROR (Context::{who}): UUID of {u} does not exist in the Context.")
+            m = self.materials[self._primitive_material_id(p)]
+            self._set_primitive_appearance(p, m.color, m.texture_file, override)
+
+    @ports("Context::isPrimitiveTextureColorOverridden", "Primitive::isTextureColorOverridden")
+    def is_primitive_texture_color_overridden(self, uuid: int) -> bool:
+        return self.materials[self._primitive_material_id(self.primitives[int(uuid)])].texture_color_overridden
 
     @ports("Context::getPrimitiveColor", "Context::getPrimitiveColorRGBA")
     def get_primitive_color(self, uuid: int) -> np.ndarray:

@@ -43,15 +43,15 @@ def _(B, filename, origin=(0.0, 0.0, 0.0), height=None, rotation=(0.0, 0.0), col
 
 @op("obj_queries", "helios")
 def _(B):
-    """Per primitive (sorted): texture-color override, material label, object_label; then per polymesh
+    """Per primitive (sorted): texture-color override, material ID and label (automatic ones included),
+    object_label; then per polymesh
     object: normal source, counts, vertices, faces, normals, UVs and the face -> UUID map."""
     ctx = B.ctx
     out = []
     for u in sorted(ctx.getAllUUIDs()):
         u = int(u)
-        lab = ctx.getPrimitiveMaterialLabel(u)
-        lab = "(auto)" if lab.startswith("__auto_") else lab
-        out += [float(ctx.isPrimitiveTextureColorOverridden(u))] + _codes(lab)
+        out += [float(ctx.isPrimitiveTextureColorOverridden(u)), float(ctx.getPrimitiveMaterialID(u))]
+        out += _codes(ctx.getPrimitiveMaterialLabel(u))
         out += _codes(ctx.getPrimitiveData(u, "object_label")) if ctx.doesPrimitiveDataExist(u, "object_label") else [-1.0]
     for o in sorted(ctx.getAllObjectIDs()):
         if ctx.getObjectType(o) != 5:
@@ -103,7 +103,8 @@ def _(B):
     S = B.scene
     out = []
     for u in S.all_uuids():
-        out += [float(S.is_primitive_texture_color_overridden(u))] + _codes(S.primitive_material_label(u))
+        out += [float(S.is_primitive_texture_color_overridden(u)), float(S.get_primitive_material_id(u))]
+        out += _codes(S.get_primitive_material_label(u))
         out += _codes(S.get_primitive_data(u, "object_label")) if S.does_primitive_data_exist(u, "object_label") else [-1.0]
     for o in S.all_object_ids():
         if S.object_type(o) != 5:

@@ -164,3 +164,16 @@ def polymesh_fuzz(B, seed):
     B.add_polymesh(uu[3:])                             # partially parented: only free ones join
     B.add_tile(r.uniform(-1, 1, 3), (1.0, 1.0), (0.2, 0.3), (2, 2))
     return B.snapshot()
+
+
+@case("core.registry.selftest", tier="exact", fuzz=1)
+def registry_selftest(B, seed):
+    """An op from ops_example_selftest.py, reached through the dispatch fallback."""
+    B.add_patch((0, 0, 0), (1, 1))
+    B.add_tile((0, 0, 1), (1, 1), (0, 0), (2, 2))
+    return [float(B.primitive_count())]
+
+
+from .ops import load_plugins as _load  # noqa: E402  (cases_* modules register on import)
+
+_load()

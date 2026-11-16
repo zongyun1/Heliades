@@ -7,6 +7,8 @@ from .snapshot import Snapshot
 
 
 def run_case(name: str, seed: int = 0):
+    from .ops import load_plugins
+    load_plugins()
     from .backends import ForgeBackend, HeliosBackend
     from .cases import CASES
     c = CASES[name]
@@ -19,6 +21,8 @@ def run_case(name: str, seed: int = 0):
 
 def run_all(patterns=None, verbose=False) -> list[dict]:
     from .cases import CASES
+    from .ops import load_plugins
+    load_plugins()
     results = []
     for name, c in CASES.items():
         if patterns and not any(p in name for p in patterns):

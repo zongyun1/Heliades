@@ -4,6 +4,9 @@ pytest.importorskip("pyhelios")
 
 from heliades.parity import run_case  # noqa: E402
 from heliades.parity.cases import CASES  # noqa: E402
+from heliades.parity.ops import load_plugins  # noqa: E402
+
+load_plugins()
 
 
 @pytest.mark.parametrize("name", sorted(CASES))

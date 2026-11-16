@@ -11,7 +11,21 @@ import numpy as np
 from .snapshot import Snapshot
 
 
-class ForgeBackend:
+class _OpsDispatch:
+    """Falls back to operations registered with ``@op`` in ops_* modules."""
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        from .ops import OPS, load_plugins
+        load_plugins()
+        impl = OPS.get(name, {}).get(self.name)
+        if impl is None:
+            raise AttributeError(f"{type(self).__name__} has no operation '{name}' (register it with @op in an ops_* module)")
+        return lambda *a, **k: impl(self, *a, **k)
+
+
+class ForgeBackend(_OpsDispatch):
     name = "heliades"
 
     def __init__(self):
@@ -55,7 +69,7 @@ class ForgeBackend:
         return self.scene.snapshot()
 
 
-class HeliosBackend:
+class HeliosBackend(_OpsDispatch):
     name = "helios"
 
     def __init__(self):

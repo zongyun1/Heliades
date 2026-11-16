@@ -141,7 +141,7 @@ def tube_fuzz(B, seed):
         rad = r.uniform(0.0005, 0.02, n)
         rad[r.random(n) < 0.1] = 1e-7                  # below the 1e-5 clamp
         cols = r.random((n, 3)) if r.random() < 0.5 else None
-        B.add_tube(int(r.integers(3, 12)), nodes, rad, cols)
+        B.add_tube(int(r.integers(3, 40)), nodes, rad, cols)   # >= 13 hits non-correctly-rounded glibc sinf/cosf
     return B.snapshot()
 
 

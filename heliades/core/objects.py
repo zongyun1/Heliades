@@ -116,7 +116,7 @@ class ObjectsMixin:
                 axial = Z.copy() if mag < f32(1e-6) else V.div(axial, mag)
                 rot_axis = V.cross(prev_axial, axial)
                 if float(V.magnitude(rot_axis)) > 1e-5:
-                    angle = V.acosf(np.clip(V.dot(prev_axial, axial), f32(-1), f32(1)))
+                    angle = V.acos_d(np.clip(V.dot(prev_axial, axial), f32(-1), f32(1)))
                     prev_radial = V.rotate_point_about_line(prev_radial, V.v3(0, 0, 0), rot_axis, angle)
                 else:
                     prev_radial = fallback(axial)

@@ -4,3 +4,4 @@ __pycache__/
 outputs/helios/*.json
 third_party/
 migration/inventory.json
+.claude/

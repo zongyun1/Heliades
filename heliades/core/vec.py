@@ -60,15 +60,48 @@ def smul(a, v) -> np.ndarray:
     return f32(a) * np.asarray(v, f32)
 
 
+def _load_libm():
+    """glibc's float sinf/cosf/acosf are not correctly rounded (about 1 in 40 arguments of the form
+    2*PI_F*j/N differ by 1 ulp from the rounded double result). Helios calls them, so we do too."""
+    import ctypes
+    import ctypes.util
+    try:
+        m = ctypes.CDLL(ctypes.util.find_library("m") or "libm.so.6")
+        fns = (m.sinf, m.cosf, m.acosf)
+        for fn in fns:
+            fn.restype, fn.argtypes = ctypes.c_float, [ctypes.c_float]
+        return fns
+    except (OSError, AttributeError):
+        return None, None, None
+
+
+_SINF, _COSF, _ACOSF = _load_libm()
+
+
 def sinf(x) -> np.float32:
-    return f32(math.sin(float(f32(x))))
+    """C sinf (float in, float out) -- use where the C++ calls sinf or std::sin on a float."""
+    return f32(_SINF(float(f32(x)))) if _SINF else f32(math.sin(float(f32(x))))
 
 
 def cosf(x) -> np.float32:
-    return f32(math.cos(float(f32(x))))
+    return f32(_COSF(float(f32(x)))) if _COSF else f32(math.cos(float(f32(x))))
 
 
 def acosf(x) -> np.float32:
+    return f32(_ACOSF(float(f32(x)))) if _ACOSF else f32(math.acos(float(f32(x))))
+
+
+def sin_d(x) -> np.float32:
+    """C sin(double) of a float argument, rounded to float on assignment."""
+    return f32(math.sin(float(f32(x))))
+
+
+def cos_d(x) -> np.float32:
+    return f32(math.cos(float(f32(x))))
+
+
+def acos_d(x) -> np.float32:
+    """C acos(double) of a float argument (Helios's tube frame calls acos, not acosf)."""
     return f32(math.acos(float(f32(x))))
 
 
@@ -83,7 +116,7 @@ def rotate_point_about_line(point, line_base, line_direction, theta) -> np.ndarr
     u, v, w = div(line_direction, mag)
     a, b, c = np.asarray(line_base, f32)
     x, y, z = np.asarray(point, f32)
-    st, ct = sinf(theta), cosf(theta)
+    st, ct = sin_d(theta), cos_d(theta)  # global.cpp calls sin/cos(double); verified by parity probe
     one_ct = f32(1) - ct
     px = f32(f32(f32(f32(a * f32(v * v + w * w)) - f32(u * f32(f32(f32(f32(b * v + c * w) - u * x) - v * y) - w * z))) * one_ct
                  + x * ct) + f32(f32(f32(-c * v + b * w) - w * y) + v * z) * st)

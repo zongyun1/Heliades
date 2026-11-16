@@ -16,6 +16,7 @@ Per crop (``bean``, ``soybean``):
 * ``plantarch.<crop>.steps_full``: a full ``snapshot(include_hidden=True)`` after the 2-day steps;
 * ``plantarch.<crop>.flowering``: a direct build past the first flowers (bean 60, soybean 70 days), the number of
   flower / fruit buds and the ``_observe`` checks (gated while W3-D is missing);
+* ``plantarch.<crop>.flowering_full``: the whole snapshot of that plant (flowers, pods, their hidden prototypes);
 * ``plantarch.<crop>.gallery``: a direct build at the gallery age (bean 45, soybean 50): engine calls, XML,
   all tubes and leaflets with vertices, and ``plantarch.<crop>.gallery_full`` the whole snapshot.
 
@@ -92,6 +93,10 @@ def _observe(B, seed, *, leaf_vertices=False) -> list[float]:
     out.append(-108.0)
     for oid, T, verts in B.pa_leaf_objects(leaf_vertices):
         out += ([float(oid)] if ids else []) + T + verts
+    if not gated:
+        from .ops_plantarch_w4b import inflorescence_ported
+        if inflorescence_ported():
+            out += [-120.0] + [float(x) for x in B.inflo_plant_organs()]   # every peduncle / flower / fruit object
     return out
 
 
@@ -169,6 +174,11 @@ def _register(crop):
         seed = _start(B, s, crop, FLOWERING_AGE[crop])
         n_floral = sum(st in _FLORAL_GEOMETRY_STATES for st in B.w4b_floral_states())
         return [-98.0, float(n_floral)] + _observe(B, seed)
+
+    @case(f"plantarch.{crop}.flowering_full", tier="ulp", max_ulp=0, fuzz=8)
+    def flowering_full(B, s):
+        _start(B, s, crop, FLOWERING_AGE[crop])
+        return _full(B)
 
 
 for _crop in CROPS:

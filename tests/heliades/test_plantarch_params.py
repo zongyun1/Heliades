@@ -240,7 +240,7 @@ def test_registry_and_errors():
     with pytest.raises(PlantArchitectureError):
         pa.loadPlantModelFromLibrary("nope")
     with pytest.raises(NotImplementedError):
-        pa.loadPlantModelFromLibrary("bean")
+        pa.loadPlantModelFromLibrary("cowpea")
     with pytest.raises(PlantArchitectureError):
         pa.registerPlantModel("x", None, None, "herbaceous", (1.0, 0.0))
     with pytest.raises(PlantArchitectureError):

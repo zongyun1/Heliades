@@ -132,7 +132,18 @@ MUTATIONS = {
     # the soybean creation function's node threshold
     "soybean_branch_nodes": (SOY, None, "_soybean_phytomer_creation", "shoot_node_index >= 5:", "shoot_node_index >= 4:",
                              "plantarch.soybean.steps"),
+    # the soybean's closed flower is the bean's mesh (AS:4042), not its own open-flower mesh
+    "soybean_closed_flower_mesh": (SOY, None, "_soybean_flower", '"assets/obj/BeanFlower_closed_white.obj"',
+                                   '"assets/obj/SoybeanFlower_open_white.obj"', "plantarch.soybean.flowering_full"),
+    # open and closed bean flowers are different meshes (the loadOBJ overload of the pod is not observable: every
+    # face of BeanPod.obj follows a usemtl, so the default colour is never used)
+    "bean_flower_open_closed_swapped": (BEAN, None, "_bean_flower", "    if flower_is_open:\n",
+                                        "    if not flower_is_open:\n", "plantarch.bean.flowering_full"),
 }
+
+_HOOKS = {"_bean_phytomer_creation": ("BeanPhytomerCreationFunction", BEAN),
+          "_soybean_phytomer_creation": ("SoybeanPhytomerCreationFunction", SOY),
+          "_soybean_flower": ("SoybeanFlowerPrototype", SOY), "_bean_flower": ("BeanFlowerPrototype", BEAN)}
 
 
 @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
@@ -144,12 +155,8 @@ def test_mutations_are_caught(monkeypatch, mutation):
     monkeypatch.setattr(CW, "STEP_AGES", tuple(range(2, 21, 2)))
     module, owner, attr, old, new, case_name = MUTATIONS[mutation]
     _patch_source(monkeypatch, module, owner, attr, old, new)
-    if module is BEAN and attr == "_bean_phytomer_creation":
+    if attr in _HOOKS:
         # the hook holds the function object: rebind it to the patched copy
-        monkeypatch.setattr(BEAN.BeanPhytomerCreationFunction, "impl", getattr(BEAN, attr))
-    if module is SOY and attr == "_soybean_phytomer_creation":
-        monkeypatch.setattr(SOY.SoybeanPhytomerCreationFunction, "impl", getattr(SOY, attr))
-    if module is BEAN and attr == "base_rotation_draws":
-        # build_legume looks base_rotation_draws up in the module globals at call time
-        pass
+        hook_name, mod = _HOOKS[attr]
+        monkeypatch.setattr(getattr(mod, hook_name), "impl", getattr(mod, attr))
     assert _fails(case_name)

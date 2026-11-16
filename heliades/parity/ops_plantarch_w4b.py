@@ -21,14 +21,12 @@ f32 = np.float32
 
 
 def inflorescence_ported() -> bool:
-    """True once W3-D's ``updateInflorescence`` is merged (the seam no longer raises)."""
-    from ..plantarchitecture import phytomer as P
+    """True once W3-D's inflorescence geometry is merged (``inflorescence.update_inflorescence`` exists)."""
     try:
-        from ..plantarchitecture import inflorescence  # noqa: F401
+        from ..plantarchitecture import inflorescence
     except ImportError:
         return False
-    src = getattr(P.Phytomer, "updateInflorescence", None)
-    return src is not None and "W3-D" not in (getattr(src, "__doc__", "") or "")
+    return callable(getattr(inflorescence, "update_inflorescence", None))
 
 
 @op("w4b_inflorescence_ported", "helios")

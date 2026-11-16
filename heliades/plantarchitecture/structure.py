@@ -10,11 +10,15 @@ never changes the cache state or draws.
 ``canonical`` turns either side's dict into a string with every number rounded to float32, which is
 the precision both sides store.
 
-``plant_structure_dict`` (mirroring ``writePlantStructureXML``) is for W3-E; the parameter part lives here.
+``plant_structure_dict`` (W3-E) is the structured form of ``writePlantStructureXML``: it parses the XML text
+of the port (``plant.plant_structure_xml``), so every value is exactly what Helios writes (``ostream << float``,
+6 significant digits), and the same parser reads an oracle XML file (:func:`xml_to_structure_dict`). The live
+plant then adds what the XML does not carry: the organ object IDs (``organs``) per shoot and phytomer and per plant.
 """
 from __future__ import annotations
 
 import json
+import xml.etree.ElementTree as ET
 
 import numpy as np
 
@@ -131,3 +135,103 @@ def _canon(v):
 def canonical(d) -> str:
     """Key-sorted JSON with every number written as its float32 value."""
     return json.dumps(_canon(d), sort_keys=True, separators=(",", ":"))
+
+
+# ---- plant structure (W3-E) -------------------------------------------------------------------------
+
+#: XML tags that repeat inside their parent -> the list key they are collected under
+_REPEATED = {"plant_instance": "plant_instances", "shoot": "shoots", "phytomer": "phytomers", "petiole": "petioles",
+             "leaf": "leaves", "floral_bud": "floral_buds", "flower": "flowers",
+             "internode_floral_buds": "internode_floral_buds"}
+#: tags whose text is a string (everything else is numeric)
+_STRING_TAGS = {"shoot_type_label", "growth_shoot_type_label"}
+#: tags that are always lists of numbers, even with one value
+_VECTOR_TAGS = {"base_position", "base_rotation", "petiole_axis_initial", "petiole_rotation_axis",
+                "curvature_perturbations", "yaw_perturbations", "azimuthal_restoring_angles", "gravitropic_angles"}
+_INT_TAGS = {"parent_shoot_ID", "parent_node_index", "parent_petiole_index", "is_dormant", "dormancy_cycles",
+             "meristem_is_alive", "nodes_this_season", "is_axis_continuation", "max_nodes_growth_cap",
+             "max_nodes_per_season_growth_cap", "is_evergreen", "minimum_leaf_texture_stage", "phytomer_is_dormant",
+             "internode_length_segments", "petiole_length_segments", "petiole_radial_subdivisions", "leaf_is_sessile",
+             "leaf_prototype", "bud_state", "parent_index", "bud_index", "is_terminal"}
+
+
+def _num(tok: str, integer: bool):
+    if integer:
+        return int(tok)
+    return float(f32(float(tok)))
+
+
+def _value(tag: str, text: str):
+    text = (text or "").strip()
+    if tag in _STRING_TAGS:
+        return text
+    if tag == "vegetative_bud_states":                       # " 1 1 ; 5 ; " -> [[1, 1], [5]]
+        return [[int(t) for t in grp.split()] for grp in text.split(";")[:-1]] if text else []
+    toks = text.replace(";", " ").split()
+    vals = [_num(t, tag in _INT_TAGS) for t in toks]
+    if tag in _VECTOR_TAGS:
+        return vals
+    return vals[0] if len(vals) == 1 else vals
+
+
+def _element(el) -> dict:
+    d: dict = {k: (int(v) if v.lstrip("-").isdigit() else v) for k, v in el.attrib.items()}
+    for child in el:
+        if child.tag in _REPEATED:
+            d.setdefault(_REPEATED[child.tag], []).append(_element(child))
+        elif len(child):
+            d[child.tag] = _element(child)
+        else:
+            d[child.tag] = _value(child.tag, child.text)
+    return d
+
+
+def xml_to_structure_dict(text: str) -> dict:
+    """``writePlantStructureXML`` text (Helios or Heliades) -> nested dict.
+
+    ``{"ID", "base_position", "plant_age", ..., "shoots": [{"ID", "shoot_type_label", "base_rotation", ...,
+    "phytomers": [{"phytomer_age", "vegetative_bud_states", "internode": {"internode_length", ...,
+    "petioles": [{"petiole_length", ..., "leaves": [...], "floral_buds": [{"bud_state", "peduncle": {...},
+    "inflorescence": {"flower_offset", "flowers": [...]}}]}], "internode_floral_buds": [{"floral_buds": [...]}]}}]}]}``.
+    Angles are in degrees as in the XML; every number is the float32 value of the printed text."""
+    root = ET.fromstring(text)
+    plants = [_element(p) for p in root.findall("plant_instance")]
+    if len(plants) != 1:
+        raise ValueError(f"expected one <plant_instance>, found {len(plants)}")
+    return plants[0]
+
+
+def plant_structure_dict(pa, plantID: int, organs: bool = True) -> dict:
+    """The structured plant of ``writePlantStructureXML`` (shoots, phytomers, petioles, leaves, floral buds and
+    their sampled parameters), for the simulator converter and the calibration loop.
+
+    With ``organs`` the live object IDs are added (``-1`` = no geometry):
+
+    * per shoot: ``organs = {"internode": objID}``;
+    * per phytomer: ``organs = {"petioles": [objID per existing petiole tube], "leaves": [[objID per leaflet] per petiole],
+      "peduncles": [[objIDs] per floral bud], "inflorescences": [[objIDs] per floral bud]}`` (floral buds in
+      ``floral_buds`` order: per petiole, then the internode buds);
+    * per plant: ``organs`` = the plant-level getters (``internode``, ``petiole``, ``leaf``, ``peduncle``,
+      ``flower``, ``fruit`` object IDs, in their C++ order).
+    """
+    from .plant import plant_structure_xml
+    d = xml_to_structure_dict(plant_structure_xml(pa, plantID))
+    if not organs:
+        return d
+    ctx = pa.context_ptr
+    live = [s for s in pa.plant_instances[plantID].shoot_tree if not s.isPruned()]
+    for sd, shoot in zip(d.get("shoots", []), live):
+        assert sd["ID"] == shoot.ID
+        oid = shoot.internode_tube_objID
+        sd["organs"] = {"internode": int(oid) if ctx.does_object_exist(oid) else -1}
+        for pd, ph in zip(sd.get("phytomers", []), shoot.phytomers):
+            pd["organs"] = {
+                "petioles": [int(o) for o in ph.getExistingPetioleObjIDs()],
+                "leaves": [[int(o) for o in pet] for pet in ph.leaf_objIDs],
+                "peduncles": [[int(o) for o in fb.peduncle_objIDs] for pet in ph.floral_buds for fb in pet],
+                "inflorescences": [[int(o) for o in fb.inflorescence_objIDs] for pet in ph.floral_buds for fb in pet],
+            }
+    d["organs"] = {"internode": pa.getPlantInternodeObjectIDs(plantID), "petiole": pa.getPlantPetioleObjectIDs(plantID),
+                   "leaf": pa.getPlantLeafObjectIDs(plantID), "peduncle": pa.getPlantPeduncleObjectIDs(plantID),
+                   "flower": pa.getPlantFlowerObjectIDs(plantID), "fruit": pa.getPlantFruitObjectIDs(plantID)}
+    return d

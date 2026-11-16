@@ -15,6 +15,7 @@ delegate to ``shoot_min``. Growth (``advanceTime``) is W3-C.
 from __future__ import annotations
 
 from ..migration_registry import ports
+from .api import PlantArchitectureAPI, install_snake_aliases
 from .params import ShootParameters, vec3
 from .random_parameter import PlantArchitectureError
 
@@ -31,8 +32,17 @@ def context_generator(scene):
     return scene.rng.generator
 
 
-class PlantArchitecture:
-    """helios PlantArchitecture (parameter / library part)."""
+def _as_vec3(v):
+    """A PyHelios-style ``vec3`` (``.x .y .z``) or any 3-sequence -> float32 (3,)."""
+    if hasattr(v, "x") and hasattr(v, "y") and hasattr(v, "z"):
+        v = (v.x, v.y, v.z)
+    return np.asarray(v, f32).reshape(3)
+
+
+@install_snake_aliases
+class PlantArchitecture(PlantArchitectureAPI):
+    """helios PlantArchitecture. The query API (organ IDs, plant metrics, shoot topology, canopy build,
+    ``plant_structure_dict``) and the snake_case aliases are in :mod:`.api` (W3-E)."""
 
     @ports("PlantArchitecture::PlantArchitecture")
     def __init__(self, context):
@@ -52,6 +62,11 @@ class PlantArchitecture:
             "leaf_texture_stage")}
         from . import shoot_min
         shoot_min.init_plant_state(self)
+        # the inflorescence prototype caches (H:6700-6704), keyed by (prototype function, organ build parameters);
+        # inflorescence._caches would create them lazily, here they exist from the start like the C++ members
+        self.unique_closed_flower_prototype_objIDs = {}
+        self.unique_open_flower_prototype_objIDs = {}
+        self.unique_fruit_prototype_objIDs = {}
 
     # ---- registry -------------------------------------------------------------------------------
 
@@ -150,7 +165,7 @@ class PlantArchitecture:
     @ports("PlantArchitecture::addPlantInstance")
     def addPlantInstance(self, base_position, current_age):
         from .shoot_min import addPlantInstance
-        return addPlantInstance(self, base_position, current_age)
+        return addPlantInstance(self, _as_vec3(base_position), current_age)
 
     @ports("PlantArchitecture::addBaseStemShoot")
     def addBaseStemShoot(self, plantID, current_node_number, base_rotation, internode_radius, internode_length_max,
@@ -196,7 +211,7 @@ class PlantArchitecture:
         self.current_organ_build_parameters = {}
         self.current_build_plant_name = self.current_plant_model
         try:
-            plantID = self.plant_builders[self.current_plant_model](base_position)
+            plantID = self.plant_builders[self.current_plant_model](_as_vec3(base_position))
         finally:
             self.current_build_parameters = {}
             self.current_organ_build_parameters = {}
@@ -213,9 +228,21 @@ class PlantArchitecture:
     # ---- growth (W3-C, growth.py) ------------------------------------------------------------
 
     @ports("PlantArchitecture::advanceTime")
-    def advanceTime(self, *args):
-        """advanceTime(days) (all plants), advanceTime(plantID or [plantIDs], days), advanceTime(years, days)."""
+    def advanceTime(self, *args, **kw):
+        """advanceTime(days) (all plants), advanceTime(plantID or [plantIDs], days). The PyHelios keyword form
+        ``advanceTime(dt, plant_id=..)`` / ``plant_ids=..`` / ``years=..`` is accepted too."""
         from .growth import advanceTime
+        if kw:
+            if len(kw) > 1 or len(args) != 1:
+                raise ValueError("Pass at most one of plant_id, plant_ids, or years")
+            (k, v), = kw.items()
+            if k == "plant_id":
+                return advanceTime(self, [int(v)], args[0])
+            if k == "plant_ids":
+                return advanceTime(self, [int(p) for p in v], args[0]) if v else None
+            if k == "years":
+                return self.advanceTimeYears(v, args[0])
+            raise TypeError(f"advanceTime() got an unexpected keyword argument '{k}'")
         if len(args) == 1:
             return advanceTime(self, sorted(self.plant_instances), args[0])
         a, b = args

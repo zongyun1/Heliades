@@ -53,26 +53,75 @@ twist, texture stages, phytomer callbacks, determinate tassel growth beyond `inf
 
 ## Parity (`cases_plantarch_w4c.py`, `ops_plantarch_w4c.py`): Context seeds 1..8, all 0 ulp
 
-PARITY_TABLE
+| case | tier | seeds | checks | result |
+|---|---|---|---|---|
+| `plantarch.{c}.load` | exact | 8 | engine calls after ctor / load / second load; whole `mainstem` ShootParameters (canonical float32 JSON) | 0 |
+| `plantarch.{c}.age0_full` | ulp 0 | 8 | `snapshot(include_hidden=True)` of the age-0 plant (strawberry 30 prototypes + 3 leaflets; maize 10 prototypes of 800 triangles + 1 leaf) | 0 ulp |
+| `plantarch.{c}.age0_attrs` | exact | 8 | materials, primitive data (incl. maize `spectral_class_map` per triangle), object data, polymesh face sets | 0 |
+| `plantarch.{c}.steps` | ulp 0 | 8 | days 2..30 in 2-day calls; per step: engine calls, whole XML, all shoots' nodes/radii, every tube (IDs, UUIDs, vertices), every leaf (ID, 4x4, vertices); final full snapshot | 0 ulp |
+| `plantarch.{c}.last_vegetative` | ulp 0 | 8 | direct build at 38 d (strawberry) / 44 d (maize), same observation + snapshot | 0 ulp |
+| `plantarch.{c}.gallery` | ulp 0 | 8 | direct build at 60 d (strawberry, 6 flowers) / 50 d (maize, ear as fruit), same observation incl. `<flower>`/`<peduncle>` + snapshot | 0 ulp (ungated after W3-D merged) |
+| `plantarch.{c}.gallery_vegetative` | ulp 0 | 8 | the gallery build with the draws-only inflorescence on Heliades: draws, XML w/o floral records, vegetative geometry by value | 0 ulp |
+| `plantarch.strawberry.fruiting` | ulp 0 | 16 | days 76 (flowers + 3-5 berries) and 100 (berries only), full observation + snapshot; first oracle check of W3-D's fruit-gravity step (0.65) | 0 ulp |
+| `plantarch.maize.flag_leaf` | ulp 0 | 8 | day 57 (node 20: flag leaf via `rotateLeaf`; tassel bud) with draws-only inflorescence, engine calls not compared | 0 ulp |
 
-Inflorescence gate: `inflorescence_ported()` = `heliades.plantarchitecture.inflorescence` importable (W3-D). The
+Engine calls after load + build (oracle = Heliades, fresh build per age, probe):
+
+| strawberry | s1 | s2 | s3 | s4 | s5 | s6 | s7 | s8 |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 31 | 27 | 27 | 27 | 29 | 27 | 35 | 27 |
+| 2 | 58 | 62 | 52 | 53 | 55 | 70 | 65 | 59 |
+| 10 | 186 | 166 | 171 | 157 | 165 | 179 | 164 | 156 |
+| 20 | 324 | 313 | 274 | 311 | 275 | 294 | 315 | 274 |
+| 30 | 419 | 417 | 390 | 416 | 417 | 409 | 418 | 394 |
+| 38 | 419 | 417 | 390 | 416 | 417 | 409 | 418 | 394 |
+| 60 | 473 | 471 | 450 | 474 | 473 | 463 | 472 | 448 |
+
+| maize | s1 | s2 | s3 | s4 | s5 | s6 | s7 | s8 |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 22 | 18 | 18 | 18 | 20 | 18 | 26 | 18 |
+| 2 | 22 | 18 | 18 | 18 | 20 | 18 | 26 | 18 |
+| 10 | 95 | 110 | 104 | 100 | 88 | 121 | 88 | 81 |
+| 20 | 170 | 175 | 219 | 207 | 167 | 216 | 192 | 155 |
+| 30 | 289 | 292 | 320 | 365 | 269 | 322 | 321 | 267 |
+| 44 | 417 | 391 | 418 | 455 | 365 | 430 | 442 | 364 |
+| 50 | 476 | 450 | 480 | 525 | 447 | 474 | 503 | 416 |
+
+Inflorescence gate (history): `inflorescence_ported()` = `heliades.plantarchitecture.inflorescence` importable (W3-D). The
 oracle decides per (age, seed) whether flowers / fruit exist (`w4c_inflorescence_gate`, PyHelios on both sides),
 and a gated pair returns `[-999, n_organs]` on both backends. Today: `gallery` is gated for every seed (strawberry
 day 60: 6 flowers; maize day 50: the ear); `gallery_vegetative` and `flag_leaf` run the same builds with W3-C's
-draws-only inflorescence on Heliades and compare everything vegetative. When W3-D lands, `gallery` runs in full
-without edits. The oracle's floral schedule is seed-independent (seeds 1..8): strawberry's first flower on day 40
+draws-only inflorescence on Heliades and compare everything vegetative. W3-D merged during this package: `gallery` now runs in
+full and passes; the strawberry/maize flower, berry and ear OBJ prototypes are bound to the hooks W3-D calls. The oracle's floral schedule is seed-independent (seeds 1..8): strawberry's first flower on day 40
 (1, 2, 3 flowers on days 40, 42, 44), maize's ear set on day 46.
 
 ## Mutation checks (`tests/heliades/test_plantarch_w4c.py::test_mutations_are_caught`)
 
-MUTATION_TABLE
+All caught (maize `steps` shortened to day 20 for the test):
+
+| mutation | caught by |
+|---|---|
+| maize base rotation drawn left to right (pitch first) | maize.age0_full |
+| flexibility factor `1 - 0.75*fmax(..)/0.55` in float (C `fmax` is double) | maize.flag_leaf |
+| no rank taper of `leaf_flexibility` | maize.flag_leaf |
+| no `setGrassFlagLeafAngle` | maize.flag_leaf |
+| `rotateLeaf` pitch axis `+cross` instead of `-cross` | maize.flag_leaf |
+| no flexibility ageing | maize.steps |
+| deflected lattice not written back (no droop) | maize.steps |
+| correctly rounded `exp` instead of glibc `expf` in the ageing sigmoid | maize.steps |
+| class map recorded on every textured triangle | maize.age0_attrs |
+| no fruit gravity (W3-D step 6) | strawberry.fruiting |
+| strawberry OBJ prototypes loaded at height 0.75 (tomato's) | strawberry.gallery |
+
+Not distinguishable (removed, listed below): the maize internode ramp `0.7 + 0.3*i/5` in float (same floats for
+i = 0..5), the redeform tolerance (re-deflecting an unchanged leaf gives the same vertices), `0.035f * M_PI` in float.
 
 ## Float / double choices (each proven or found indistinguishable)
 
 | expression | evaluated as | evidence |
 |---|---|---|
-| `leaf_flexibility *= 1.f - 0.75f * fmax(0.f, r - 0.45f) / 0.55f` (AS) | C `fmax` -> double chain, narrowed once | mutation `maize_flex_factor_float` |
-| `fmin(1.f, 0.7 + 0.3 * float(i) / 5.f)` (AS) | double | mutation `maize_inode_scale_float` |
+| `leaf_flexibility *= 1.f - 0.75f * fmax(0.f, r - 0.45f) / 0.55f` (AS) | C `fmax` -> double chain, narrowed once | mutation `maize_flex_factor_float` (float form differs for ~15% of draws) |
+| `fmin(1.f, 0.7 + 0.3 * float(i) / 5.f)` (AS) | ported as double | not distinguishable: float and double give the same 6 values |
 | `fmin(scale, fmin(1.f, 0.475f + 0.092f * r))` | float arithmetic; `fmin` of floats is exact in either type | by construction |
 | `flexibilityAgingProgress`: `expf` | glibc `expf` (ctypes) | mutation `aging_exp_double` |
 | `randu(0.f, 0.035f * M_PI)` | double product, narrowed | not distinguishable: float and double products give the same float (0.10995574) |
@@ -89,12 +138,15 @@ MUTATION_TABLE
 3. **The maize tassel draws ~10^5 numbers from the Context stream** (`MaizeTasselPrototype`): a draws-only
    inflorescence cannot reproduce the engine-call count once the tassel exists (day 57 onward: 549 vs 104121 for
    seed 1). `flag_leaf` therefore skips the probe; the geometry, which is all built before the tassel, matches.
-4. The ear (`MaizeEarPrototype`) and the strawberry flower/fruit are plain OBJ prototypes, bound here; their
-   placement, scaling and the peduncle are W3-D's.
+4. The ear (`MaizeEarPrototype`) and the strawberry flower/fruit are plain OBJ prototypes (height 0: unscaled), bound
+   here; placement, scaling, peduncle and fruit gravity are W3-D's, and match the oracle for both crops (the ear's
+   distributed `inflorescence.pitch` U(0, 30) and the berries' 0.65 gravity included).
+7. With W3-D merged, `plantarch.<c>.gallery_vegetative` also confirms that the draws-only inflorescence makes the
+   same draws as the real geometry for both crops.
 5. Maize leaves are re-deflected every step (`deformLeafUnderSelfWeight` from `setPetioleAndLeafScaleFraction` and
    from the mature-leaf path of the expansion loop). This dominates the maize cost: ~40 s per seed for 15 two-day
    steps (each step rewrites 800 triangles per leaf through `triangle_transform`).
-6. Not ported (raise): `MaizeTasselPrototype`; `deformLeafUnderSelfWeight` of a reshaped leaf (`reshapeLeaf`);
+6. Not ported (raise): `MaizeTasselPrototype` (so a real maize build past day 56, when the terminal tassel bud appears, raises; this is the one remaining reproductive gap); `deformLeafUnderSelfWeight` of a reshaped leaf (`reshapeLeaf`);
    organ build parameters (`buildPlantInstanceFromLibrary` with maize tassel keys still raises in `architecture.py`).
 
 ## Requests for core (not done; `heliades/core` is owned by others)

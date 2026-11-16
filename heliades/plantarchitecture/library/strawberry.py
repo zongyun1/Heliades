@@ -147,12 +147,9 @@ def buildStrawberryPlant(pa, base_position):
 def obj_prototype(scene, filename, height=0.0):
     """``loadOBJ(resolvePluginAsset(.../assets/obj/<filename>), (0,0,0), height, nullrotation, black, "ZUP", true)``
     then ``addPolymeshObject``. Height 0 keeps the OBJ's own size."""
-    from ..leaf_prototype import _try_plugin_asset
-    from ..random_parameter import PlantArchitectureError
-    path = _try_plugin_asset("assets/obj/" + filename)
-    if not path:
-        raise PlantArchitectureError(f"ERROR (PlantArchitecture): Could not resolve plugin asset assets/obj/{filename}.")
-    uuids = scene.load_obj(path, (0.0, 0.0, 0.0), f32(height), (0.0, 0.0), (0.0, 0.0, 0.0), "ZUP", True)
+    from .tomato_inflorescence import _plugin_asset
+    uuids = scene.load_obj(_plugin_asset("assets/obj/" + filename), (0.0, 0.0, 0.0), height=f32(height),
+                           rotation=(0.0, 0.0), color=(0.0, 0.0, 0.0), upaxis="ZUP", silent=True)
     return scene.add_polymesh_object(list(uuids))
 
 
@@ -165,4 +162,4 @@ def StrawberryFlowerPrototype(scene, subdivisions, flower_is_open, build_paramet
 @named_hook("StrawberryFruitPrototype").implement
 @ports("StrawberryFruitPrototype")
 def StrawberryFruitPrototype(scene, subdivisions, build_parameters=None):
-    return _obj_prototype(scene, "StrawberryFruit.obj")
+    return obj_prototype(scene, "StrawberryFruit.obj")

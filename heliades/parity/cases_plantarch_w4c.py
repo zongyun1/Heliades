@@ -17,14 +17,20 @@ Per crop (``<c>`` = ``strawberry`` / ``maize``):
   the whole plant XML, every shoot's nodes and radii, every internode / petiole tube (objID, UUIDs, vertices),
   every leaf (objID, 4x4, and its vertices: maize blades are re-deflected every step), and at the last step the
   full ``snapshot(include_hidden=True)``;
-* ``plantarch.<c>.gallery`` (ulp 0): a direct build at the gallery age (strawberry 60 d, maize 50 d), full snapshot.
+* ``plantarch.<c>.gallery`` (ulp 0): a direct build at the gallery age (strawberry 60 d: 6 flowers; maize 50 d:
+  the ear), the same observation as ``steps`` (XML with ``<flower>`` / ``<peduncle>`` records) plus the full snapshot;
+* ``plantarch.<c>.last_vegetative`` (ulp 0): a direct build at the last flower-free age (strawberry 38 d, maize 44 d);
+* ``plantarch.<c>.gallery_vegetative`` (ulp 0): the gallery build with W3-C's draws-only inflorescence on Heliades
+  (vegetative geometry by value, XML without floral records): checks that path too;
+* ``plantarch.strawberry.fruiting`` (ulp 0, 16): days 76 and 100 (flowers + berries; fruit gravity 0.65);
+* ``plantarch.maize.flag_leaf`` (ulp 0): day 57, draws-only (the tassel prototype is not ported), engine calls not
+  compared.
 
-**Inflorescence gate.** Flower, fruit, tassel and ear geometry is W3-D's (``Phytomer.updateInflorescence``).
-Until ``heliades.plantarchitecture.inflorescence`` exists, an (age, seed) pair that builds such geometry on the
-oracle is gated: the case returns only ``[-999, gate]`` on *both* backends (the oracle decides, by its flower /
-fruit object counts, so the gate itself is compared). The steps stop before the first floral organ for every
-seed (strawberry: day 40, the earliest ``dd_to_flower_initiation`` of the age-0 bud; maize: the ear on node 14
-from day ~43), so only ``gallery`` is gated today.
+**Inflorescence gate.** Flower / fruit / ear geometry is W3-D's (``heliades.plantarchitecture.inflorescence``,
+merged). ``inflorescence_ported()`` checks it is importable; while it was not, an (age, seed) pair with floral organs
+on the oracle (decided by ``w4c_inflorescence_gate``, PyHelios on both backends) returned ``[-999, n]`` on both.
+With W3-D present every pair runs in full. The maize tassel (``MaizeTasselPrototype``, terminal bud at the node cap,
+day 57+) is not ported, so no case builds a real maize plant past day 56.
 """
 from __future__ import annotations
 
@@ -144,13 +150,14 @@ def snapshot_stream(snap) -> list[float]:
     return out
 
 
-def _gallery(B, crop, s):
+def _gallery(B, crop, s, age=None):
     seed = _seed(s)
-    gate = B.w4c_inflorescence_gate(crop, seed, GALLERY_AGE[crop])
+    age = GALLERY_AGE[crop] if age is None else age
+    gate = B.w4c_inflorescence_gate(crop, seed, age)
     if gate and not inflorescence_ported():
         return [-999.0, float(gate)]
-    _start(B, crop, s, GALLERY_AGE[crop])
-    return [-1.0, float(gate), float(_probe(B, seed))] + snapshot_stream(B.snapshot(include_hidden=True))
+    _start(B, crop, s, age)
+    return [-1.0, float(gate)] + observe(B, seed) + [-200.0] + snapshot_stream(B.snapshot(include_hidden=True))
 
 
 def _last_vegetative(B, crop, s):
@@ -212,3 +219,11 @@ def maize_flag_leaf(B, s):
     oracle's ``MaizeTasselPrototype`` makes ~10^5 Context draws of its own (W3-D / tassel port), after every vegetative
     draw of the build."""
     return _gallery_vegetative(B, "maize", s, FLAG_LEAF_AGE, probe=False)
+
+
+@case("plantarch.strawberry.fruiting", tier="ulp", max_ulp=0, fuzz=16)
+def strawberry_fruiting(B, s):
+    """Strawberry with open flowers and berries (day 76: 2 flowers, 3-5 fruit; day 100: fruit only, grown to
+    maturity). The berries hang under ``fruit_gravity_factor_fraction = 0.65``, the fruit-gravity rotation that the
+    tomato (0) never reaches. Case seeds 0..7 -> day 76, 8..15 -> day 100 (Context seeds 1..8)."""
+    return _gallery(B, "strawberry", s % 8, 76.0 if s < 8 else 100.0)

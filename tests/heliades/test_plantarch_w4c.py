@@ -9,6 +9,7 @@ import pytest
 
 from heliades.core.scene import Scene
 from heliades.plantarchitecture import PlantArchitecture, hooks
+from heliades.plantarchitecture import inflorescence as INF
 from heliades.plantarchitecture import leaf_prototype as LP
 from heliades.plantarchitecture import phytomer as PH
 from heliades.plantarchitecture.library import maize as MZ
@@ -156,6 +157,12 @@ MUTATIONS = {
                          "    sigmoid = f32(f32(1) / f32(f32(1) + expf(f32(f32(-2) * f32(t - f32(2))))))\n",
                          "    sigmoid = f32(1.0 / (1.0 + math.exp(-2.0 * (float(t) - 2.0))))\n",
                          "plantarch.maize.steps"),
+    # W3-D's fruit gravity (step 6 of createInflorescenceGeometry), first reached by the strawberry (0.65)
+    "no_fruit_gravity": (INF, None, "create_inflorescence_geometry", "    if gravity_fraction > 0:\n",
+                         "    if False:\n", "plantarch.strawberry.fruiting"),
+    # the strawberry berry / flower OBJ prototypes are loaded unscaled (height 0), unlike the tomato's 0.75
+    "strawberry_obj_scaled": (SB, None, "obj_prototype", "def obj_prototype(scene, filename, height=0.0):",
+                              "def obj_prototype(scene, filename, height=0.75):", "plantarch.strawberry.gallery"),
     # recordSpectralClassMap tags only the triangles that cover a class texel
     "class_map_every_triangle": (LP, None, "recordSpectralClassMap",
                                  "        if not has_transparency or class_map_covers_a_class(",

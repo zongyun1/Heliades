@@ -11,7 +11,7 @@ dev = ["pytest"]
 # oracle: PyHelios built from third_party/pyhelios_src at the pinned Helios baseline (migration/PORTING.md)
 
 [tool.setuptools]
-packages = ["planttwin", "heliades", "heliades.core", "heliades.io", "heliades.parity"]
+packages = ["planttwin", "heliades", "heliades.core", "heliades.io", "heliades.parity", "heliades.parity.tools", "heliades.plantarchitecture", "heliades.plantarchitecture.library", "heliades.sim"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

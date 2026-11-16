@@ -42,7 +42,7 @@ angle for the first rebuild, the previous rebuild's last resample afterwards (ch
 
 ## Parity cases (`cases_plantarch_inflo.py`, `ops_plantarch_inflo.py`)
 
-Growth is not merged, so no Heliades plant flowers. Two isolating strategies:
+The isolating cases (written before growth merged) use two strategies:
 
 1. **Prototypes** straight from the oracle: tomato grown to 100/110/120 days, hidden objects > 37 (the three
    inflorescence prototypes, objects 700-702 for seed 1 / 100 days). Heliades: age-0 build, then
@@ -64,10 +64,10 @@ Growth is not merged, so no Heliades plant flowers. Two isolating strategies:
 |---|---|---|---|---|
 | `plantarch.inflo.prototypes` | ulp 0 | 3 (Context 1/4/7, ages 100/110/120) | 3 hidden objects: primitive count, transform; per primitive vertices, UVs, colour, area | 0 |
 | `plantarch.inflo.prototypes_attrs` | exact | 3 | per primitive material (label, two-sided flag, colour, texture, override) and `object_label` and data labels; object data; hidden flags | — |
-| `plantarch.inflo.placement` | ulp 0 | 24 (Context 1..8 x 100/110/120 d; @@NBUDS@@ buds) | after each forced step, growth and radii update: state, counts, fruit scale, peduncle nodes / radii / triangles / colours, per flower or fruit: transform, `inflorescence_rotation` (pitch, yaw, roll, azimuth, peduncle axis, gravity), base, base scale, triangles / colours; stored `peduncle_vertices` / radii / sampled parameters | 0 |
+| `plantarch.inflo.placement` | ulp 0 | 24 (Context 1..8 x 100/110/120 d; 179 buds: 33 closed, 34 open, 112 fruiting at build time, 11 of them naturally culm-matched; 537 forced rebuilds + 24 culm-matched variants) | after each forced step, growth and radii update: state, counts, fruit scale, peduncle nodes / radii / triangles / colours, per flower or fruit: transform, `inflorescence_rotation` (pitch, yaw, roll, azimuth, peduncle axis, gravity), base, base scale, triangles / colours; stored `peduncle_vertices` / radii / sampled parameters | 0 |
 | `plantarch.inflo.placement_labels` | exact | 24 | material label and `object_label` of every peduncle / flower / fruit primitive | — |
 | `plantarch.inflo.draws` | exact | 24 | engine calls per rebuild (6), phyllotactic cache (value, sampled) at the start of each rebuild | — |
-| `plantarch.tomato.flowering` | ulp 0 | 24 | **gated**: registered only when `PlantArchitecture.advanceTime` exists and a 2-day build works (`growth_available()`, override with `HELIADES_PARITY_FLOWERING=0/1`). Engine calls after the build, then every peduncle / flower / fruit object (sorted IDs): primitive count, transform, triangles, colours | — (not run yet) |
+| `plantarch.tomato.flowering` | ulp 0 | 24 (Context 1..8 x 75/100/120 d) | end to end, real W3-A blades: `buildPlantInstanceFromLibrary(age)`, then W3-C's full observation (engine calls, whole XML incl. `<flower>`/`<peduncle>`, all shoots' nodes/radii, every internode/petiole tube and leaflet with UUIDs/IDs) and every peduncle / flower / fruit object (sorted ID, primitive count, transform, triangles, colours). Gated on `growth_available()` (`advanceTime` exists and a 2-day build works; `HELIADES_PARITY_FLOWERING=0/1` overrides) -- active now | 0 |
 
 Unit tests (`tests/heliades/test_plantarch_inflo.py`): bend branches, fruit growth formula, hook binding,
 storage index, DORMANT/ACTIVE shortcut, a **real age-0 Phytomer** forced through CLOSED/OPEN/FRUITING (6 draws per
@@ -76,7 +76,22 @@ each base, peduncle re-anchoring and culm matching.
 
 ## Mutation check (`test_mutations_are_caught`, re-executing the module source with one edit)
 
-@@MUTATIONS@@
+All caught (`plantarch.inflo.*`, case seed 0 = Context seed 1, 100 days); `test_unmutated_source_passes` checks the
+re-execution itself is neutral.
+
+| mutation | caught by |
+|---|---|
+| compound yaw before the translation | placement |
+| pitch rotation before roll | placement |
+| `ind_from_tip = fruit` (unsigned distance from the tip lost) | placement |
+| bend sign flipped in `bendPeduncleAxis` | placement |
+| flower azimuth `-atan2f` | placement |
+| fruit growth scaled about the origin instead of each base | placement |
+| no initial 0.25 fruit scale in `setFloralBudState` | placement |
+| drop the per-flower `phyllotactic_angle.resample()` | placement, draws |
+| one extra `phyllotactic_angle.resample()` per rebuild | placement, draws |
+| skip `makeClosedFruitSurfacesOneSided` | placement_labels |
+| peduncle primitives not labelled `"peduncle"` | placement_labels |
 
 ## Discrepancies / findings
 
@@ -99,48 +114,30 @@ each base, peduncle re-anchoring and culm matching.
 5. `getInternodeRadius(1.f)` interpolates a 1-element radius list for phytomers > 0 (`1.f/0 = inf`, loop
    skipped, returns the only radius); numpy warns, so the call is wrapped in `np.errstate`.
 
-## Wiring W3-C must add (phytomer.py / shoot_min.py / growth; W3-D did not edit them)
+## Wiring (done after W3-C merged; documented for W3-E)
 
-```python
-from .inflorescence import (set_floral_bud_state, update_inflorescence, set_inflorescence_scale_fraction,
-                            update_peduncle_radii, fruit_growth_fraction)
-```
+W3-C's state machine already calls the C++ call sites (PA:11992-12044 initiation / opening / fruit set through
+`Phytomer.setFloralBudState` -> `updateInflorescence` + 0.25 fruit scale; fruit growth PA:12155 through
+`setInflorescenceScaleFraction`; `updatePeduncleRadii` at the end of `incrementPhytomerInternodeGirth`, PA:7683;
+`setPetioleBase` moves the inflorescence and peduncle objects, PA:4199-4250). W3-D replaced the three seams:
 
-1. `Phytomer._set_floral_bud_state(state, fbud)` (phytomer.py, PA:1491): replace the body with
-   `set_floral_bud_state(self.plantarchitecture_ptr, self, fbud, state)`. It already covers the
-   DORMANT/ACTIVE shortcut, the deletes and the DEAD case; `setFloralBudState(state)` / `(state, p, b)` keep
-   dispatching to it. Optionally add `Phytomer.updateInflorescence(fbud)`, `setInflorescenceScaleFraction(fbud, f)`,
-   `updatePeduncleRadii()` as one-line delegates.
-2. `advanceTime` floral state machine (PA:11972-12052), per phytomer -> petiole -> bud, after
-   `fbud.time_counter += dt` (and `fbud.age += dt` if not ACTIVE):
-   - initiation: `randu() < flower_bud_break_probability.val()` -> `phytomer.setFloralBudState(BUD_FLOWER_CLOSED, fbud)`
-     else `BUD_DEAD` (PA:11992/11994);
-   - opening: `BUD_FLOWER_OPEN` (PA:12007/12010), DEAD branch PA:12012;
-   - fruit set: `randu() < fruit_set_probability` -> `BUD_FRUITING` else `BUD_DEAD` (PA:12042/12044).
-   The state is set *inside* the same bud iteration (each non-DEAD change draws 6 and creates objects there).
-3. Fruit growth (PA:12142-12158), per phytomer after the petiole/leaf scaling of the same phytomer:
-   ```python
-   dd = fb.dd_to_inflorescence_maturity if fb.dd_to_inflorescence_maturity > 0 else inst.dd_to_fruit_maturity
-   if fb.state == BUD_FRUITING and fb.time_counter > 0 and dd > 0 and fb.dd_to_inflorescence_maturity != 0:
-       fb.previous_fruit_scale_factor = fb.current_fruit_scale_factor
-       set_inflorescence_scale_fraction(phytomer, fb, fruit_growth_fraction(fb.time_counter, dd))
-   ```
-4. End of `incrementPhytomerInternodeGirth` (PA:7683), every sub-step, not gated on `update_context_geometry`:
-   `update_peduncle_radii(phytomer)`.
-5. `Phytomer::setPetioleBase` (PA:4199-4250, W3-C): besides petioles and leaves, add `shift` to every
-   `phytomer.peduncle_vertices[e][b][k]`, and per floral bud to `fb.base_position`, every
-   `fb.inflorescence_bases[i]`, and `translate_object(fb.inflorescence_objIDs, shift)`,
-   `translate_object(fb.peduncle_objIDs, shift)` (if `build_context_geometry_peduncle`), in that order.
-6. `appendPhytomerToShoot` terminal buds (PA:7556-7590): `update_inflorescence(pa, phytomer, fb)` and, for
-   FRUITING, `set_inflorescence_scale_fraction(phytomer, fb, 0.25)`. Not reached by tomato
-   (`max_terminal_floral_buds` = 0).
-7. A stand-in phytomer must provide `required_phytomer_members()`; the real `Phytomer` already does
-   (`peduncle_*` storage, `inflorescence_bending_axis`, `build_context_geometry_peduncle`, ...).
+- `heliades/plantarchitecture/phytomer.py`: `Phytomer.updateInflorescence(fbud)` ->
+  `inflorescence.update_inflorescence(pa, self, fbud)`; `setInflorescenceScaleFraction(fbud, f)` ->
+  `inflorescence.set_inflorescence_scale_fraction`; `updatePeduncleRadii()` -> `inflorescence.update_peduncle_radii`.
+  The `pa.inflorescence_geometry_draws_only` path is kept unchanged (opt-in; its read/resample order is the same
+  as the real one: `test_flowering_geometry_and_draws_only_agree` checks equal engine state at day 56, seed 6).
+  `Phytomer._set_floral_bud_state` (W3-C's) is kept; it is the same code as `inflorescence.set_floral_bud_state`,
+  which stays the stand-alone entry point for stand-ins.
+- `heliades/plantarchitecture/plant.py`: `writePlantStructureXML` now writes the `<flower>` records
+  (`flower_pitch/yaw/roll/azimuth` in degrees, `flower_gravity_fraction` if > 0, `flower_base_scale`; contact tilts
+  raise). The `<peduncle>` records were already written from the stored values.
+- `heliades/parity/cases_plantarch_growth.py`: `plantarch.tomato.age75_vegetative` no longer sets the draws-only flag
+  or strips `<flower>`/`<peduncle>`; it compares the whole XML and the tube / leaflet geometry *with* UUIDs and IDs.
+- `tests/heliades/test_plantarch_growth.py`: `test_flowering_needs_w3d_or_draws_only` (expected the W3-D raise)
+  became `test_flowering_geometry_and_draws_only_agree`.
+- Not touched: `growth.py`, `shoot_min.py`, `architecture.py`.
 
-For W3-E: the end-to-end case `plantarch.tomato.flowering` activates by itself once
-`buildPlantInstanceFromLibrary(age > 0)` works; its Heliades op (`inflo_plant_organs`) walks
-`shoot_tree -> phytomers -> floral_buds` and classifies inflorescence objects by bud state, while the oracle uses
-`getPlantPeduncleObjectIDs` / `getPlantFlowerObjectIDs` / `getPlantFruitObjectIDs`.
+The prototype caches stay lazily created (`inflorescence._caches`); `init_plant_state` may adopt them later.
 
 ## Requests for core (not done)
 

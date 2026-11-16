@@ -19,8 +19,9 @@ oracle plant is forced through DEAD -> FLOWER_CLOSED -> FLOWER_OPEN -> FRUITING 
 * ``plantarch.inflo.draws`` (exact): engine calls consumed by each ``setFloralBudState`` rebuild (SPEC §3.3: 6, the
   per-flower ``phyllotactic_angle.resample()``; ``randu(0, 0)`` draws nothing) and the phyllotactic-angle cache
   (value, sampled) the rebuild starts from -- the last resample of the previous rebuild.
-* ``plantarch.tomato.flowering`` (ulp, max 0): end to end, ``buildPlantInstanceFromLibrary`` at 100 / 110 / 120 days,
-  seeds 1..8: engine calls, then every peduncle / flower / fruit object. **Registered only once growth exists**
+* ``plantarch.tomato.flowering`` (ulp, max 0): end to end, ``buildPlantInstanceFromLibrary`` at 75 / 100 / 120 days,
+  seeds 1..8 (real W3-A blades): the full W3-C observation (engine calls, whole XML with ``<flower>`` records, tubes,
+  leaflets), then every peduncle / flower / fruit object. **Registered only once growth exists**
   (``growth_available()``: ``PlantArchitecture.advanceTime`` is defined and a 2-day build succeeds), or with
   ``HELIADES_PARITY_FLOWERING=1``; ``=0`` disables it.
 """
@@ -32,7 +33,6 @@ import os
 import numpy as np
 
 from .cases import case
-from .tools.draw_count import engine_calls
 
 f32 = np.float32
 
@@ -87,15 +87,26 @@ def growth_available() -> bool:
     return True
 
 
+FLOWERING_AGES = (75.0, 100.0, 120.0)
+
+
 def _flowering(B, s):
+    """Full end-to-end build with real inflorescence geometry and the real W3-A blades (replayed oracle blades,
+    as in ``plantarch.tomato.age50``, only if ``GenericLeafPrototype`` is unbound), then the whole W3-C observation (engine calls, complete XML including the
+    ``<flower>`` / ``<peduncle>`` records, every shoot's nodes and radii, every internode / petiole tube and leaflet by
+    object ID / UUID) and every peduncle / flower / fruit object (ID, transform, triangles, colours)."""
+    from .cases_plantarch_growth import _hook_bound, _observe
     seed = s % 8 + 1
-    age = (100.0, 110.0, 120.0)[s // 8]
+    age = FLOWERING_AGES[s // 8]
     B.seed(seed)
     B.plantarch_new()
     B.plantarch_load("tomato")
-    B.plantarch_build((0.0, 0.0, 0.0), age)
-    n = engine_calls(seed, [B.randu() for _ in range(3)])
-    return [float(-1 if n is None else n)] + list(B.inflo_plant_organs())
+    if _hook_bound():
+        B.plantarch_build((0.0, 0.0, 0.0), age)
+    else:
+        B.pa_build_replay_blades(seed, age)
+    return np.concatenate([np.asarray(_observe(B, True, draws_seed=seed), f32), np.array([-120.0], f32),
+                           B.inflo_plant_organs()])
 
 
 if growth_available():

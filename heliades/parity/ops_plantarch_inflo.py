@@ -16,7 +16,9 @@ geometry is therefore checked in isolation, with every input taken from the orac
   nodes and radii, petiole nodes, ``inflorescence_bending_axis``, shoot index, every RandomParameter with its
   cache state, colours, storage sizes). It then forces the bud DEAD -> FLOWER_CLOSED -> FLOWER_OPEN -> FRUITING,
   reseeding the Context with a known seed before each step, then grows the fruit (``setInflorescenceScaleFraction``
-  with the advanceTime formula, tc = 2..32) and calls ``updatePeduncleRadii``; after every step it dumps the engine
+  with the advanceTime formula, tc = 2..32) and calls ``updatePeduncleRadii``; on the first bud of each plant also a
+  culm-matched variant (``shoot_index.z = x + 1``: reconciled radius, blended colours, then the culm radii x1.5 and
+  x2 with ``updatePeduncleRadii`` -> path-dependent ``setTubeRadii``); after every step it dumps the engine
   state, the peduncle tube (nodes, radii, triangles, colours, material and object labels), every flower / fruit
   object (transform, triangles, colours, labels), ``inflorescence_rotation`` / bases / base scales and the
   phytomer's stored peduncle values.
@@ -675,7 +677,6 @@ class Replay:
 
     def run(self, bud, on_step=None):
         """Replay the driver's sequence for one bud; returns the Heliades blocks and engine states."""
-        from ..core.random import MinstdRand0  # noqa: F401
         from ..plantarchitecture import inflorescence as I
         from ..plantarchitecture.architecture import context_generator
         ph, fbud, entry, pos = self.stand_in(bud)
@@ -891,16 +892,15 @@ def _(B, s, what="floats"):
 
 # ---- end-to-end organs (plantarch.tomato.flowering, gated on growth) ----------------------------------
 
-def _organ_stream(objs, verts, color, uuids, transform):
+def _organ_stream(objs, prims, transform):
+    """``prims(o)`` -> (n, float32 array of the n triangles' 9 vertex floats + 3 colour floats each)."""
     out = []
     for kind, ids in enumerate(objs):
-        out.append(float(len(ids)))
+        out.append(np.array([len(ids)], f32))
         for o in sorted(ids):
-            uu = uuids(o)
-            out += [float(kind), float(o), float(len(uu))] + [float(x) for x in transform(o)]
-            for u in uu:
-                out += [float(x) for x in verts(u)] + [float(x) for x in color(u)]
-    return out
+            n, vals = prims(o)
+            out += [np.array([kind, o, n], f32), np.asarray(transform(o), f32).reshape(16), vals]
+    return np.concatenate(out)
 
 
 @op("inflo_plant_organs", "helios")
@@ -909,13 +909,14 @@ def _(B):
     objs = [list(pa.getPlantPeduncleObjectIDs(pid)), list(pa.getPlantFlowerObjectIDs(pid)),
             list(pa.getPlantFruitObjectIDs(pid))]
 
-    def verts(u):
-        flat, _ = ctx.getPrimitiveVertices([u])
-        return np.asarray(flat, f32)
+    def prims(o):
+        uu = [int(u) for u in ctx.getObjectPrimitiveUUIDs(o)]
+        flat, _ = ctx.getPrimitiveVertices(uu)
+        v = np.asarray(flat, f32).reshape(len(uu), 9)
+        c = np.asarray(ctx.getPrimitiveColor(uu), f32).reshape(len(uu), -1)[:, :3]
+        return len(uu), np.concatenate([v, c], axis=1).reshape(-1)
 
-    return _organ_stream(objs, verts, lambda u: np.asarray(ctx.getPrimitiveColor([u]), f32).reshape(-1)[:3],
-                         lambda o: list(ctx.getObjectPrimitiveUUIDs(o)),
-                         lambda o: np.asarray(ctx.getObjectTransformationMatrix(o), f32).reshape(16))
+    return _organ_stream(objs, prims, lambda o: np.asarray(ctx.getObjectTransformationMatrix(o), f32))
 
 
 @op("inflo_plant_organs", "heliades")
@@ -929,9 +930,15 @@ def _(B):
                 for fb in buds:
                     peds += list(fb.peduncle_objIDs)
                     (fruit if fb.state == BUD_FRUITING else flowers).extend(fb.inflorescence_objIDs)
-    return _organ_stream([peds, flowers, fruit], lambda u: np.asarray(S.primitive_vertices(u), f32).reshape(-1),
-                         lambda u: np.asarray(S.get_primitive_color(u), f32)[:3], S.object_primitive_uuids,
-                         lambda o: np.asarray(S.object_transform(o), f32).reshape(16))
+    def prims(o):
+        uu = S.object_primitive_uuids(o)
+        if not uu:
+            return 0, np.zeros(0, f32)
+        v = np.array([np.asarray(S.primitive_vertices(u), f32).reshape(9) for u in uu], f32)
+        c = np.array([np.asarray(S.get_primitive_color(u), f32)[:3] for u in uu], f32)
+        return len(uu), np.concatenate([v, c], axis=1).reshape(-1)
+
+    return _organ_stream([peds, flowers, fruit], prims, S.object_transform)
 
 
 # ---- prototypes ------------------------------------------------------------------------------------

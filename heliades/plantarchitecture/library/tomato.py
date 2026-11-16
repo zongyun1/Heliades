@@ -126,10 +126,34 @@ def initializeTomatoShoots(pa):
 
 @ports("PlantArchitecture::buildTomatoPlant")
 def buildTomatoPlant(pa, base_position):
-    """PL:6205-6224. Only the parts W2-C owns are here; ``addPlantInstance`` onward is W3."""
+    """PL:6205-6224."""
     if not pa.shoot_types:
         initializeTomatoShoots(pa)
-    raise NotImplementedError("buildTomatoPlant needs addPlantInstance/addBaseStemShoot (W3-C)")
+    plantID = pa.addPlantInstance(base_position, 0)
+    base_rotation = base_rotation_draws(pa)          # 2 randu, right to left (roll first)
+    pa.addBaseStemShoot(plantID, 1, base_rotation, 0.002, 0.04, 0.01, 0.01, 0, "mainstem")
+    pa.breakPlantDormancy(plantID)
+    pa.setPlantPhenologicalThresholds(plantID, 0, 40, 5, 5, 30, 1000)
+    pa.plant_instances[plantID].max_age = f32(365)
+    return plantID
+
+
+@hooks.TomatoPhytomerCreationFunction.implement
+@ports("TomatoPhytomerCreationFunction")
+def TomatoPhytomerCreationFunction(phytomer, shoot_node_index, parent_shoot_node_index, shoot_max_nodes, plant_age):
+    """AS:4092-4108. ``fmin(1.f, 0.5 + 0.5 * plant_age / 10.f)`` is evaluated in double (the literals 0.5 and
+    0.3 are double), then narrowed to float by the assignment."""
+    from ..params import BUD_DEAD
+    if shoot_node_index < 8 and phytomer.rank == 0:
+        phytomer.setFloralBudState(BUD_DEAD)
+    if phytomer.rank > 1:
+        phytomer.setFloralBudState(BUD_DEAD)
+        phytomer.setVegetativeBudState(BUD_DEAD)
+    age = float(f32(plant_age))
+    leaf_scale = f32(min(1.0, 0.5 + 0.5 * age / 10.0))
+    phytomer.scaleLeafPrototypeScale(leaf_scale)
+    inode_scale = f32(min(1.0, 0.7 + 0.3 * age / 10.0))
+    phytomer.scaleInternodeMaxLength(inode_scale)
 
 
 def base_rotation_draws(pa):

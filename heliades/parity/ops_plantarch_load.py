@@ -3,9 +3,8 @@
 
 ``plantarch_new`` / ``plantarch_load`` / ``plantarch_shoot_params`` exist on both. The Helios side also
 exposes oracle-only observations of an age-0 build (``plantarch_build``, ``plantarch_xml``,
-``plantarch_leaf_shape``); the Heliades counterparts of those that W2-C can answer are reconstructed
-from the ported parameter layer plus an explicit replay of the age-0 Context draw plan
-(``age0_draw_plan``), until W3-B/W3-E port the Phytomer constructor and the builder.
+``plantarch_leaf_shape``). On Heliades the age-0 observables are read from a real build: the W3-B
+Phytomer constructor and the minimal ``buildTomatoPlant`` path replaced W2-C's ``age0_draw_plan`` replay.
 """
 from __future__ import annotations
 
@@ -99,61 +98,26 @@ def _(B):
 
 @op("plantarch_build", "heliades")
 def _(B, position=(0.0, 0.0, 0.0), age=0.0):
-    return B.pa.buildPlantInstanceFromLibrary(position, age)     # NotImplementedError until W3-E
-
-
-def age0_draw_plan(pa, shoot_label="mainstem"):
-    """Replay the Context draws of ``buildTomatoPlant`` at age 0 up to the last leaflet (SPEC §3.3 step 2),
-    using the ported parameter objects, and the private blade stream (§3.1).
-
-    This is a W2-C *stand-in* for the parts of the Phytomer constructor that only consume parameters;
-    it is not the geometry port. Returns a dict with the sampled values the XML / getLeafShape expose.
-    """
-    from ..core.random import MinstdRand0
-    from ..plantarchitecture.library.tomato import base_rotation_draws
-    from ..plantarchitecture.params import deg2rad, rad2deg
-    rot = base_rotation_draws(pa)                       # 2 randu, right to left
-    sp = pa.shoot_types[shoot_label].copy()             # snapshot -> Shoot copy (no draws)
-    pp = sp.phytomer_parameters.copy()                  # Phytomer's own copy
-    pp.resample()                                       # (a)-(f)
-    phyl = deg2rad(pp.internode.phyllotactic_angle.val())
-    petiole_pitch = deg2rad(pp.petiole.pitch.val())
-    pp.petiole.pitch.resample()
-    petiole_curvature = pp.petiole.curvature.val()
-    pp.petiole.curvature.resample()
-    pp.petiole.taper.val()
-    pp.petiole.taper.resample()                         # PA:3406 (constant for tomato)
-    pp.internode.max_vegetative_buds_per_petiole.val()
-    pp.internode.max_vegetative_buds_per_petiole.resample()   # PA:3439
-    pp.internode.max_floral_buds_per_petiole.val()
-    pp.internode.max_floral_buds_per_petiole.resample()       # createPetioleFloralBuds, PA:2678
-    # blade cache from the private stream: blade b = p*L + l uses draw b of longitudinal_curvature
-    nleaf = pp.leaf.leaves_per_petiole.val()
-    proto = pp.leaf.prototype
-    private = MinstdRand0(proto.unique_prototype_identifier)
-    ctx_gen = proto.setRandomGenerator(private)
-    curv = []
-    for _p in range(proto.unique_prototypes):
-        for _l in range(nleaf):
-            curv.append(proto.longitudinal_curvature.val())
-            proto.longitudinal_curvature.resample()     # GenericLeafPrototype's trailing resample (AS:868)
-    proto.setRandomGenerator(ctx_gen)
-    choice = []
-    for _l in range(nleaf):
-        choice.append(pa.context_ptr.randu(0, int(proto.unique_prototypes) - 1))   # PA:3503
-        pp.leaf.pitch.resample()                        # PA:3538
-    return {"base_rotation_deg": [rad2deg(rot.pitch), rad2deg(rot.yaw), rad2deg(rot.roll)],
-            "internode_pitch_deg": rad2deg(deg2rad(pp.internode.pitch.val())),
-            "internode_phyllotactic_angle_deg": rad2deg(phyl),
-            "petiole_pitch_deg": rad2deg(petiole_pitch),
-            "petiole_curvature": f32(petiole_curvature),
-            "leaf_prototype": choice,
-            "leaf_longitudinal_curvature": [curv[p * nleaf + l] for l, p in enumerate(choice)]}
+    B.pid = B.pa.buildPlantInstanceFromLibrary(position, age)
+    return B.pid
 
 
 @op("plantarch_age0_observables", "heliades")
 def _(B):
-    return age0_draw_plan(B.pa)
+    """The same observables as the Helios op, read from the built plant (shoot 0, phytomer 0, petiole 0)."""
+    from ..plantarchitecture.params import rad2deg
+    B.plantarch_build((0.0, 0.0, 0.0), 0.0)
+    shoot = B.pa.plant_instances[B.pid].shoot_tree[0]
+    ph = shoot.phytomers[0]
+    rot = shoot.base_rotation
+    nleaf = len(ph.leaf_objIDs[0])
+    return {"base_rotation_deg": [rad2deg(rot.pitch), rad2deg(rot.yaw), rad2deg(rot.roll)],
+            "internode_pitch_deg": rad2deg(ph.internode_pitch),
+            "internode_phyllotactic_angle_deg": rad2deg(ph.internode_phyllotactic_angle),
+            "petiole_pitch_deg": rad2deg(ph.petiole_pitch[0]),
+            "petiole_curvature": f32(ph.petiole_curvature[0]),
+            "leaf_prototype": list(ph.leaf_prototype_index[0]),
+            "leaf_longitudinal_curvature": [f32(ph.getLeafShape(0, l).longitudinal_curvature) for l in range(nleaf)]}
 
 
 @op("plantarch_age0_observables", "helios")

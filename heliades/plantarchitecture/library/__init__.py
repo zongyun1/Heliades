@@ -55,3 +55,8 @@ SHOOT_INITIALIZERS["bean"] = bean.initializeBeanShoots
 SHOOT_INITIALIZERS["soybean"] = soybean.initializeSoybeanShoots
 PLANT_BUILDERS["bean"] = bean.buildBeanPlant
 PLANT_BUILDERS["soybean"] = soybean.buildSoybeanPlant
+
+# W4-A: cherry tomato and capsicum (shoot initializers and plant builders)
+from . import capsicum, cherrytomato  # noqa: E402
+SHOOT_INITIALIZERS.update(cherrytomato=cherrytomato.initializeCherryTomatoShoots, capsicum=capsicum.initializeCapsicumShoots)
+PLANT_BUILDERS.update(cherrytomato=cherrytomato.buildCherryTomatoPlant, capsicum=capsicum.buildCapsicumPlant)

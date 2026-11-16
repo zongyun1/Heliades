@@ -262,7 +262,12 @@ def _advance_plant_one_step(pa, plantID, dt):
             phytomer.age = f32(phytomer.age + dt)
             shoot._update_leaf_texture_stage(phytomer)
             if phytomer.phytomer_parameters.phytomer_callback_function is not None:
-                raise NotImplementedError("phytomer callback functions are not ported")
+                # PhytomerCallbackScope (PA:11936, W4-A); a structural operation inside it is skipped/rejected in C++
+                pa.phytomer_callback_depth += 1
+                try:
+                    phytomer.phytomer_parameters.phytomer_callback_function(phytomer)
+                finally:
+                    pa.phytomer_callback_depth -= 1
 
         # ---- phenological transitions
         if shoot.isdormant and inst.time_since_dormancy >= inst.dd_to_dormancy_break:
@@ -273,7 +278,9 @@ def _advance_plant_one_step(pa, plantID, dt):
 
         for phytomer in shoot.phytomers:
             if phytomer.age > inst.max_leaf_lifespan:
-                raise NotImplementedError("Phytomer::removeLeaf (leaf lifespan) is not ported")
+                if pa.nitrogen_model_enabled:
+                    raise NotImplementedError("resorbLeafNitrogen is not ported")
+                phytomer.removeLeaf()                                      # W4-A
             if not phytomer.floral_buds:
                 continue
             for petiole in phytomer.floral_buds:

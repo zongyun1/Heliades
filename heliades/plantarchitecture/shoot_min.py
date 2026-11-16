@@ -556,6 +556,53 @@ def addBaseStemShoot(pa, plantID, current_node_number, base_rotation, internode_
     return shootID
 
 
+@ports("PlantArchitecture::appendShoot")
+def appendShoot(pa, plantID, parent_shoot_ID, current_node_number, base_rotation, internode_radius, internode_length_max,
+                internode_length_scale_factor_fraction, leaf_scale_factor_fraction, radius_taper,
+                shoot_type_label) -> int:
+    """PA:7178-7237 (W4-B): continue the parent's axis from its tip node with a new shoot."""
+    if plantID not in pa.plant_instances:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::appendShoot): Plant with ID of {plantID} does not exist.")
+    inst = pa.plant_instances[plantID]
+    if shoot_type_label not in inst.shoot_types_snapshot:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::appendShoot): Shoot type with label of "
+                                     f"{shoot_type_label} does not exist.")
+    tree = inst.shoot_tree
+    shoot_parameters = inst.shoot_types_snapshot[shoot_type_label].copy()
+    validateShootTypes(shoot_parameters, inst.shoot_types_snapshot)
+    if not tree:
+        raise PlantArchitectureError("ERROR (PlantArchitecture::appendShoot): Cannot append shoot to empty shoot. You "
+                                     "must call addBaseStemShoot() first for each plant.")
+    if parent_shoot_ID >= len(tree):
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::appendShoot): Parent with ID of {parent_shoot_ID} does "
+                                     "not exist.")
+    if current_node_number > shoot_parameters.max_nodes.val():
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::appendShoot): Cannot add shoot with "
+                                     f"{current_node_number} nodes since the specified max node number is "
+                                     f"{shoot_parameters.max_nodes.val()}.")
+    parent = tree[parent_shoot_ID]
+    if not parent.phytomers:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::appendShoot): Parent shoot with ID of {parent_shoot_ID} "
+                                     "has no phytomers, so there is no node to append to. A shoot pruned at node 0 is "
+                                     "left in this state.")
+    # the parent stops growing at its apex: growth cap, the parameter itself (RandomParameter_int = uint), apex
+    parent.growth_state.max_nodes_growth_cap = int(parent.current_node_number)
+    parent.shoot_parameters.max_nodes = int(parent.current_node_number)
+    parent.terminateApicalBud()
+    appended_shootID = len(tree)
+    parent_node = parent.current_node_number - 1
+    rank = parent.rank
+    base_position = parent.shoot_internode_vertices[-1][-1].copy()
+    shoot = Shoot(plantID, appended_shootID, parent_shoot_ID, parent_node, 0, rank, base_position, base_rotation,
+                  current_node_number, internode_length_max, shoot_parameters, shoot_type_label, pa)
+    shoot.is_axis_continuation = True
+    shoot.growth_state.internode_radius_cap = parent.growth_state.internode_radius_cap
+    tree.append(shoot)
+    shoot.buildShootPhytomers(internode_radius, internode_length_max, internode_length_scale_factor_fraction,
+                              leaf_scale_factor_fraction, radius_taper)
+    return appended_shootID
+
+
 @ports("PlantArchitecture::breakPlantDormancy")
 def breakPlantDormancy(pa, plantID):
     if plantID not in pa.plant_instances:
@@ -586,4 +633,4 @@ def setPlantPhenologicalThresholds(pa, plantID, time_to_dormancy_break, time_to_
 
 
 __all__ = ["Shoot", "PlantInstance", "ShootGrowthState", "init_plant_state", "addPlantInstance", "addBaseStemShoot",
-           "breakPlantDormancy", "setPlantPhenologicalThresholds", "validateShootTypes"]
+           "breakPlantDormancy", "setPlantPhenologicalThresholds", "validateShootTypes", "appendShoot"]

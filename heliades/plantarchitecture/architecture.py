@@ -161,6 +161,15 @@ class PlantArchitecture:
                                 internode_length_max, internode_length_scale_factor_fraction,
                                 leaf_scale_factor_fraction, radius_taper, shoot_type_label)
 
+    @ports("PlantArchitecture::appendShoot")
+    def appendShoot(self, plantID, parent_shoot_ID, current_node_number, base_rotation, internode_radius,
+                    internode_length_max, internode_length_scale_factor_fraction, leaf_scale_factor_fraction,
+                    radius_taper, shoot_type_label):
+        from .shoot_min import appendShoot
+        return appendShoot(self, plantID, parent_shoot_ID, current_node_number, base_rotation, internode_radius,
+                           internode_length_max, internode_length_scale_factor_fraction, leaf_scale_factor_fraction,
+                           radius_taper, shoot_type_label)
+
     @ports("PlantArchitecture::breakPlantDormancy")
     def breakPlantDormancy(self, plantID):
         from .shoot_min import breakPlantDormancy

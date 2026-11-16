@@ -47,3 +47,11 @@ def register_all(pa):
                               (lambda f=init: f(pa)) if init else _not_ported("shoot initializer", name),
                               (lambda pos, f=build: f(pa, pos)) if build else _not_ported("plant builder", name),
                               plant_type, beta if beta is not None else (0.0, 0.0))
+
+
+# W4-B: bean and soybean (append-only registration)
+from . import bean, soybean  # noqa: E402
+SHOOT_INITIALIZERS["bean"] = bean.initializeBeanShoots
+SHOOT_INITIALIZERS["soybean"] = soybean.initializeSoybeanShoots
+PLANT_BUILDERS["bean"] = bean.buildBeanPlant
+PLANT_BUILDERS["soybean"] = soybean.buildSoybeanPlant

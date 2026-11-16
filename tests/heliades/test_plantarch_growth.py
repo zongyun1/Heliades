@@ -98,15 +98,19 @@ def test_tube_objects_follow_the_stored_nodes():
             assert np.array_equal(s.tube_object_nodes(ph.petiole_objIDs[0]), np.array(ph.petiole_vertices[0], f32))
 
 
-def test_flowering_needs_w3d_or_draws_only():
-    """Seed 6 initiates its first flower bud on day 56 (node 8, created day 16, +40 days)."""
-    s, pa = _tomato(6)
-    with pytest.raises(NotImplementedError, match="W3-D"):
-        pa.buildPlantInstanceFromLibrary((0, 0, 0), 56)
+def test_flowering_geometry_and_draws_only_agree():
+    """Seed 6 initiates its first flower bud on day 56 (node 8, created day 16, +40 days). The real W3-D geometry
+    and the draws-only replay consume the same engine calls."""
+    s_real, pa_real = _tomato(6)
+    pid_real = pa_real.buildPlantInstanceFromLibrary((0, 0, 0), 56)
+    buds = [b for sh in pa_real.plant_instances[pid_real].shoot_tree for ph in sh.phytomers
+            for p in ph.floral_buds for b in p if b.inflorescence_objIDs]
+    assert buds and all(len(b.peduncle_objIDs) == 1 and len(b.inflorescence_objIDs) == 6 for b in buds)
     s, pa = _tomato(6)
     pa.inflorescence_geometry_draws_only = True
     pid = pa.buildPlantInstanceFromLibrary((0, 0, 0), 56)
     assert pa.inflorescence_geometry_is_stub
+    assert s.rng.generator.x == s_real.rng.generator.x
     main = pa.plant_instances[pid].shoot_tree[0]
     assert not main.meristem_is_alive                                            # determinate growth
     assert all(b.state == BUD_DEAD for ph in main.phytomers for p in ph.axillary_vegetative_buds for b in p)

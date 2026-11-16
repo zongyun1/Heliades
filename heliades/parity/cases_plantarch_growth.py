@@ -34,10 +34,10 @@ Cases:
   variant against the oracle's same variant, plus the oracle-side identities 20 == 10+10 and 20 != 5x4 as flags);
 * ``plantarch.tomato.age50`` (ulp, 0): a direct build at 50 days with replayed blades (no flowers yet for any
   of the 8 seeds; the earliest initiation is day 56);
-* ``plantarch.tomato.age75_vegetative`` (ulp, 0): a direct build at 75 days, where most seeds flower. The
-  inflorescence geometry is W3-D, so Heliades runs ``updateInflorescence`` in its draws-only mode: the draw
-  count, the XML without the ``<flower>`` records, and the internode / petiole / leaflet geometry by value
-  (not by UUID or object ID, which the missing flower objects shift).
+* ``plantarch.tomato.age75_vegetative`` (ulp, 0): a direct build at 75 days, where most seeds flower, with the
+  real W3-D inflorescence geometry: the draw count, the whole XML (``<flower>`` and ``<peduncle>`` records
+  included) and the internode / petiole / leaflet geometry with their UUIDs and object IDs. (The flowers
+  themselves are compared by ``plantarch.tomato.flowering``, ages 75 / 100 / 120.)
 """
 from __future__ import annotations
 
@@ -224,6 +224,5 @@ def tomato_age75_vegetative(B, s):
     B.seed(seed)
     B.plantarch_new()
     B.plantarch_load("tomato")
-    B.pa_draws_only_inflorescence()
-    B.pa_build_replay_blades(seed, 75.0)
-    return _observe(B, True, draws_seed=seed, xml_filter=strip_flowers, ids=False)
+    B.pa_build_replay_blades(seed, 75.0)        # real inflorescence geometry since W3-D (no draws-only flag)
+    return _observe(B, True, draws_seed=seed)

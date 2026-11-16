@@ -107,11 +107,15 @@ def test_age0_structure():
     assert s.primitive_texture_file(s.object_primitive_uuids(tree[0].internode_tube_objID)[0]).endswith("GrapeBark.jpg")
 
 
-def test_age120_is_gated():
+def test_cluster_prototype_builds():
     from heliades.parity.cases_plantarch_w4d import cluster_geometry_ported
-    assert not cluster_geometry_ported()
-    with pytest.raises(NotImplementedError):
-        GV.GrapevineFruitPrototype(None, 1, {})
+    assert cluster_geometry_ported()
+    s = Scene()
+    s.seed_random_generator(5)
+    oid = GV.GrapevineFruitPrototype(s, 1, {})
+    uu = s.object_primitive_uuids(oid)
+    assert len(uu) % (2 * 8 * 7) == 0 and 75 * 112 <= len(uu) <= 105 * 112     # 8-division spheres, 75..105 berries
+    assert all(s.get_primitive_data(u, "object_label") == "fruit" for u in uu[:5])
 
 
 # ---- mutation checks (oracle) -------------------------------------------------------------------
@@ -136,7 +140,7 @@ def _patch_source(monkeypatch, module, owner, attr, old, new):
 
 @pytest.mark.parametrize("mutation", ["wander_left_to_right", "prescribed_radius_constant",
                                       "no_attraction", "cordon_buds_left_dormant",
-                                      "no_leaf_pulling"])
+                                      "no_leaf_pulling", "berry_scatter_left_to_right"])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
     from heliades.parity import cases_plantarch_w4d as CW
@@ -183,3 +187,11 @@ def test_mutations_are_caught(monkeypatch, mutation):
         # fruit-zone leaves are pulled once the shoot is 45 days old
         monkeypatch.setattr(GV, "grapevine_leaf_pulling_shoot_age", f32(1e6))
         assert _fails("plantarch.grape.age76", range(1))
+    elif mutation == "berry_scatter_left_to_right":
+        # make_vec3(randn(), randn(), randn()) for a berry's scatter is evaluated right to left (GCC)
+        _patch_source(monkeypatch, GV, None, "_grapevine_fruit_prototype",
+                      "            sz = ctx.randn()                             # make_vec3(randn(), randn(), randn()): right to left\n"
+                      "            sy = ctx.randn()\n            sx = ctx.randn()\n",
+                      "            sx = ctx.randn()\n            sy = ctx.randn()\n            sz = ctx.randn()\n")
+        monkeypatch.setattr(GV.GrapevineFruitPrototype, "impl", GV._grapevine_fruit_prototype)
+        assert _fails("plantarch.grape.age84", range(1))

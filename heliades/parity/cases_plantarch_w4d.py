@@ -19,9 +19,10 @@ PlantArchitecture, built with ``buildPlantInstanceFromLibrary`` (gv_build).
   on day 30 and are steered by the catch wires (attraction points) from then on;
 * ``plantarch.grape.age76`` (ulp, 0): a direct build at 76 days (fruit-zone leaf pulling has happened,
   no cluster has set yet on any of the 8 seeds): full snapshot plus the probe and shoot summary;
-* ``plantarch.grape.age120`` (gated): the gallery age. Clusters set from day ~79, and cluster geometry needs
-  the inflorescence machinery (W3-D) and ``GrapevineFruitPrototype``. Until both are ported the case returns
-  the gate marker ``[-1]`` on both backends; when they are, it compares the full snapshot.
+* ``plantarch.grape.age84`` (ulp, 0, seeds 1..2) and ``plantarch.grape.age120`` (ulp, 0, seeds 1..8): direct
+  builds after the clusters set (day ~79): grape cluster prototypes through W3-D's inflorescence machinery, the
+  hidden prototypes and their placed copies. Both are gated on ``cluster_geometry_ported()`` (returns ``[-1]``
+  on both backends otherwise).
 """
 from __future__ import annotations
 
@@ -172,6 +173,16 @@ def cluster_geometry_ported() -> bool:
         return False
     from ..plantarchitecture.library import grapevine
     return not getattr(grapevine, "FRUIT_PROTOTYPE_IS_STUB", True)
+
+
+@case("plantarch.grape.age84", tier="ulp", max_ulp=0, fuzz=2)
+def grape_age84(B, s):
+    """A few days after the first clusters set: five cluster prototypes (berry seeding and packing,
+    ``addSphere``), their hidden copies and the fruiting peduncles."""
+    if not cluster_geometry_ported():
+        return [-1.0]
+    seed = _start(B, s, 84.0)
+    return _structure(B, seed) + [-203.0] + snapshot_stream(B.snapshot(True))
 
 
 @case("plantarch.grape.age120", tier="ulp", max_ulp=0, fuzz=8)

@@ -11,8 +11,8 @@
   per-plant attraction points, trained buds woken, trained leaves removed.
 * ``GrapevinePhytomerCreationFunction`` / ``GrapevinePhytomerCallbackFunction`` (AS:1943-2005).
 * ``GrapeClusterParameters`` and the build-parameter declarations (PL:399, 432; AS:1760-1772).
-* ``GrapevineFruitPrototype`` (AS:1774-1935) is bound to its hook but its geometry raises until the
-  inflorescence machinery (W3-D) and ``Context::addSphere`` exist; see ``migration/notes/W4-D.md``.
+* ``GrapevineFruitPrototype`` (AS:1774-1935) with a local ``Context::addSphere``; called through W3-D's
+  inflorescence machinery (``fruit_prototype_function(ctx, 1, organ_build_parameters)``).
 
 Float maths: ``std::sin`` / ``std::cos`` / ``std::exp`` of a float are glibc ``sinf`` / ``cosf`` / ``expf``
 (not correctly rounded, called through ctypes). Function arguments are evaluated right to left (GCC), so
@@ -45,9 +45,10 @@ GrapevinePhytomerCallbackFunction = Hook("GrapevinePhytomerCallbackFunction")   
 def _libm():
     m = ctypes.CDLL(ctypes.util.find_library("m") or "libm.so.6")
     fns = {}
-    for name in ("expf", "sinf", "cosf"):
+    for name in ("expf", "sinf", "cosf", "cbrtf", "powf"):
         fn = getattr(m, name)
-        fn.restype, fn.argtypes = ctypes.c_float, [ctypes.c_float]
+        fn.restype = ctypes.c_float
+        fn.argtypes = [ctypes.c_float, ctypes.c_float] if name == "powf" else [ctypes.c_float]
         fns[name] = fn
     return fns
 
@@ -516,10 +517,179 @@ def _grapevine_phytomer_callback(phytomer):
 
 @GrapevineFruitPrototype.implement
 @ports("GrapevineFruitPrototype")
-def _grapevine_fruit_prototype(context_ptr, subdivisions, build_parameters):
-    """AS:1774-1935: not ported yet (needs Context::addSphere and the W3-D inflorescence path)."""
-    raise NotImplementedError("GrapevineFruitPrototype (grape cluster geometry) is not ported; it needs W3-D's "
-                              "inflorescence machinery and Context::addSphere")
+def _grapevine_fruit_prototype(context_ptr, subdivisions, build_parameters=None):
+    """AS:1774-1935: a seeded, packed grape cluster built along +x, in meters.
+
+    libm choices (compile probe of a TU with Assets.cpp's includes and ``using namespace helios``): the
+    unqualified ``sin`` / ``cos`` of a float are the C double functions; ``std::pow(float, int)`` is double;
+    ``std::pow(float, float)`` is ``powf``; ``std::cbrt(float)`` is ``cbrtf``; ``std::round(float)`` is ``roundf``.
+    The overlap pass is vectorised over berries but accumulates each berry's displacement in the C++ pair order
+    (pushes from earlier partners first, then later ones), so every float sum is the C++ one."""
+    ctx = context_ptr
+    cp = GrapeClusterParameters.fromBuildParameters(build_parameters or {})
+    berry_diameter, cluster_berry_count = cp.berry_diameter, cp.cluster_berry_count
+    reference_berry_count = 90
+    berry_radius_mean = f32(0.05)
+    berry_radius_cv = f32(0.07)
+    berry_subdivisions = 8
+    meters_per_unit = f32(f32(f32(0.5) * berry_diameter) / berry_radius_mean)
+
+    def roundf(x):
+        x = float(x)
+        return math.copysign(math.floor(abs(x) + 0.5), x)
+
+    lo = int(roundf(f32(f32(cluster_berry_count * f32(75)) / f32(90))))
+    hi = int(roundf(f32(f32(cluster_berry_count * f32(105)) / f32(90))))
+    berry_count = int(ctx.randu(lo, hi))
+    cluster_length = f32(_M["cbrtf"](float(f32(f32(berry_count) / f32(reference_berry_count)))))
+
+    shoulder_radius = f32(f32(0.33) * cluster_length)
+    primary_branch_count = int(ctx.randu(13, 17))
+    first_branch_position = f32(f32(0.06) * cluster_length)
+    last_branch_position = f32(f32(0.85) * cluster_length)
+
+    branch_position, branch_length, branch_berry_weight, branch_direction = [], [], [], []
+    has_wing = ctx.randu() < f32(0.5)
+    azimuth_offset = ctx.randu(f32(0), TWO_PI_F)
+    span = f32(last_branch_position - first_branch_position)
+    for branch in range(primary_branch_count):
+        pos = f32(first_branch_position + f32(f32(span * f32(f32(branch) + f32(f32(0.5) * ctx.randu())))
+                                             / f32(primary_branch_count)))
+        branch_position.append(pos)
+        reach = f32(f32(shoulder_radius - berry_radius_mean)
+                    * f32(f32(1) - f32(f32(pos - first_branch_position) / f32(cluster_length - first_branch_position))))
+        reach = f32(reach * f32(f32(1) + f32(f32(0.15) * ctx.randn())))
+        reach = max(reach, f32(f32(0.3) * berry_radius_mean))
+        insertion_angle = V.deg2rad(ctx.randu(f32(45), f32(65)))
+        azimuth = f32(f32(f32(V.deg2rad(f32(137.5)) * f32(branch)) + ctx.randu(f32(-0.3), f32(0.3))) + azimuth_offset)
+        length = f32(float(reach) / math.sin(float(insertion_angle)))
+        berry_weight = f32(float(f32(reach * reach)) + (float(f32(f32(1.2) * berry_radius_mean))) ** 2)
+        if has_wing and branch == 0:
+            insertion_angle = V.deg2rad(f32(22))
+            length = f32(f32(0.4) * cluster_length)
+            berry_weight = f32(berry_weight * f32(2.5))
+        branch_length.append(length)
+        branch_berry_weight.append(berry_weight)
+        ia, az = float(insertion_angle), float(azimuth)
+        branch_direction.append(np.array([f32(math.cos(ia)), f32(math.sin(ia) * math.cos(az)),
+                                          f32(math.sin(ia) * math.sin(az))], f32))
+
+    branch_berries_total = berry_count - 1
+    total_weight = f32(0)
+    for w in branch_berry_weight:
+        total_weight = f32(total_weight + w)
+    branch_berry_count, remainders, assigned = [], [], 0
+    for branch in range(primary_branch_count):
+        share = f32(f32(branch_berry_weight[branch] / total_weight) * f32(branch_berries_total))
+        fl = f32(np.floor(share))
+        branch_berry_count.append(int(fl))
+        remainders.append((f32(share - fl), branch))
+        assigned += int(fl)
+    remainders.sort(reverse=True)                       # std::sort(rbegin, rend) of pair<float, int>
+    for i in range(branch_berries_total - assigned):
+        branch_berry_count[remainders[i][1]] += 1
+
+    anchors = [np.array([f32(last_branch_position + berry_radius_mean), 0, 0], f32)]
+    for branch in range(primary_branch_count):
+        d = branch_direction[branch]
+        bl = branch_length[branch]
+        for _ in range(branch_berry_count[branch]):
+            along = f32(f32(1) - f32(f32(0.75) * f32(_M["powf"](float(ctx.randu()), 1.5))))
+            sz = ctx.randn()                             # make_vec3(randn(), randn(), randn()): right to left
+            sy = ctx.randn()
+            sx = ctx.randn()
+            scatter = np.array([sx, sy, sz], f32)
+            scatter = scatter - d * V.dot(scatter, d)
+            anchor = (np.array([branch_position[branch], 0, 0], f32) + d * f32(bl * along)) \
+                + scatter * f32(f32(f32(0.35) * bl) * along)
+            anchors.append(anchor.astype(f32))
+
+    radii = np.empty(berry_count, f32)
+    for b in range(berry_count):
+        radii[b] = f32(berry_radius_mean * V.clamp(f32(f32(1) + f32(berry_radius_cv * ctx.randn())), f32(0.8),
+                                                    f32(1.2)))
+
+    A = np.array(anchors, f32)
+    C = A.copy()
+    n = berry_count
+    keep = f32(f32(1) - f32(0.012))
+    shift_x = f32(f32(f32(0.3) * f32(0.012)) * berry_radius_mean)
+    spring = f32(0.02)
+    rsum = radii[:, None] + radii[None, :]
+    upper = np.triu(np.ones((n, n), bool), 1)
+    x_hi = (cluster_length - f32(0.5) * radii).astype(f32)
+    for iteration in range(400):
+        if iteration < 300:
+            C[:, 1] = C[:, 1] * keep
+            C[:, 2] = C[:, 2] * keep
+            C[:, 0] = C[:, 0] + shift_x
+            C = C + (A - C) * spring
+        for _pass in range(2):
+            S = C[:, None, :] - C[None, :, :]                                     # separation(i, j) = c_i - c_j
+            dist = np.sqrt((S[..., 0] * S[..., 0] + S[..., 1] * S[..., 1]) + S[..., 2] * S[..., 2])
+            overlap = rsum - dist
+            with np.errstate(divide="ignore", invalid="ignore"):
+                s = (f32(0.5) * overlap) / dist
+                P = S * s[..., None]
+            mask = upper & (overlap > 0) & (dist > 0)
+            disp = np.zeros((n, 3), f32)
+            for i in range(n - 1):                     # disp_k -= push(i, k), i ascending, for every k > i
+                m = mask[i, i + 1:]
+                if m.any():
+                    sub = disp[i + 1:]
+                    sub[m] = sub[m] - P[i, i + 1:][m]
+            for j in range(1, n):                      # then disp_k += push(k, j), j ascending, for every k < j
+                m = mask[:j, j]
+                if m.any():
+                    sub = disp[:j]
+                    sub[m] = sub[m] + P[:j, j][m]
+            C = C + disp
+        cx = C[:, 0]
+        cx = np.where(cx < radii, radii, np.where(cx > x_hi, x_hi, cx))
+        C[:, 0] = cx
+
+    color = make_RGBcolor(0.053, 0.076, 0.098)
+    UUIDs = []
+    for b in range(n):
+        UUIDs += _add_sphere(ctx, berry_subdivisions, meters_per_unit * C[b], f32(meters_per_unit * radii[b]), color)
+    ctx.set_primitive_data(UUIDs, "object_label", "fruit")
+    return ctx.add_polymesh_object(UUIDs)
+
+
+def _add_sphere(ctx, ndivs, center, radius, color):
+    """``Context::addSphere(Ndivs, center, radius, color)`` (Context.cpp:1815-1853): triangles, no object. Not in
+    the core yet (it has only addSphereObject, whose vertices differ: radius applied after sphere2cart, top cap
+    wound the other way)."""
+    center = np.asarray(center, f32)
+    radius = f32(radius)
+    dtheta = f32(PI_F / f32(ndivs))
+    dphi = f32(f32(f32(2) * PI_F) / f32(ndivs))
+    half = f32(f32(0.5) * PI_F)
+
+    def p(el, az):
+        el, az = f32(el), f32(az)
+        rc = f32(radius * cosf(el))
+        return center + np.array([f32(rc * sinf(az)), f32(rc * cosf(az)), f32(radius * sinf(el))], f32)
+
+    uu = []
+    for j in range(ndivs):
+        uu.append(ctx.add_triangle(p(-half, 0), p(f32(-half + dtheta), f32(f32(j) * dphi)),
+                                   p(f32(-half + dtheta), f32(f32(j + 1) * dphi)), color))
+    for j in range(ndivs):
+        v0 = p(half, 0)
+        v1 = p(f32(half - dtheta), f32(f32(j) * dphi))
+        v2 = p(f32(half - dtheta), f32(f32(j + 1) * dphi))
+        uu.append(ctx.add_triangle(v2, v1, v0, color))
+    for j in range(ndivs):
+        for i in range(1, ndivs - 1):
+            a, b = f32(-half + f32(f32(i) * dtheta)), f32(-half + f32(f32(i + 1) * dtheta))
+            v0 = p(a, f32(f32(j) * dphi))
+            v1 = p(b, f32(f32(j) * dphi))
+            v2 = p(b, f32(f32(j + 1) * dphi))
+            v3 = p(a, f32(f32(j + 1) * dphi))
+            uu.append(ctx.add_triangle(v0, v1, v2, color))
+            uu.append(ctx.add_triangle(v0, v2, v3, color))
+    return uu
 
 
 __all__ = ["initializeGrapevineVSPShoots", "buildGrapevineVSP", "grapevineTrunkPath", "BoundedWander",
@@ -527,4 +697,4 @@ __all__ = ["initializeGrapevineVSPShoots", "buildGrapevineVSP", "grapevineTrunkP
            "GrapevinePhytomerCallbackFunction", "register_build_parameters"]
 
 #: True while GrapevineFruitPrototype only raises (the parity gate for cluster-bearing ages reads it)
-FRUIT_PROTOTYPE_IS_STUB = True
+FRUIT_PROTOTYPE_IS_STUB = False

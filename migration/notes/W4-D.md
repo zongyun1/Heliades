@@ -24,8 +24,8 @@ growth before the clusters set (about day 79), and P3 for the gallery age of 120
 | P2 | attraction blend in the segment loop; the forced Context update (`collision_avoidance_applied && force_update_on_collision`) | PA:3162-3189, 12312-12326 | 45 | ported |
 | P2 | phytomer callback dispatch; `GrapevinePhytomerCallbackFunction` (fruit-zone leaf pulling at a shoot age of 45 days) | PA:11935-11938, AS:1977-2005 | 33 | ported |
 | P3 | `GrapeClusterParameters` | AS:1760-1772 | 13 | ported |
-| P3 | `GrapevineFruitPrototype` (berry seeding, packing, `addSphere`) | AS:1774-1935 | 162 | **hook bound, raises** |
-| P3 | inflorescence geometry: fruit prototypes, peduncles, `sampleOrganBuildParameters` used per prototype | W3-D | - | **W3-D** (`sampleOrganBuildParameters` is ported in `build_parameters.py`) |
+| P3 | `GrapevineFruitPrototype` (berry seeding, packing, local `Context::addSphere`) | AS:1774-1935 | 162 | ported (after W3-D merged) |
+| P3 | inflorescence geometry: fruit prototypes, peduncles | W3-D | - | W3-D's, used unchanged |
 
 These paths are not reached before day 120:
 - seasonal dormancy (break at 165 days, dormancy period 365);
@@ -78,7 +78,10 @@ None of these hunks changes the tomato path, because every new branch is gated o
 | `plantarch.grape.age0_build_parameters` | 1..4 | the same, with `vine_spacing` 1.8, `trunk_height` 0.6 and the organ keys |
 | `plantarch.grape.steps` | 1..8 | ages 2..40 in 2-day calls. After each call:<br>- the probe;<br>- per shoot, the node count and the stored nodes and radii;<br>- the whole hidden-inclusive snapshot as a stream.<br>The shoots break on day 30 and the catch wires steer them from then on (attraction is active on 337 of 436 phytomers by day 60). |
 | `plantarch.grape.age76` | 1..8 | direct build at 76 days: probe, shoot summary and full snapshot (55 658 primitives for seed 1). The fruit-zone leaves have been pulled and no cluster has set. |
-| `plantarch.grape.age120` | 1..8 | **gated**: returns `[-1]` on both sides until `heliades.plantarchitecture.inflorescence` exists *and* `grapevine.FRUIT_PROTOTYPE_IS_STUB` is False |
+| `plantarch.grape.age84` | 1..2 | direct build at 84 days, a few days after the clusters set: probe, shoot summary and full snapshot (318 854 primitives for seed 1) |
+| `plantarch.grape.age120` | 1..8 | the gallery age: probe, shoot summary and full snapshot (426 816 primitives for seed 1; about 165 s on Heliades) |
+
+Both cluster cases are still gated by `cluster_geometry_ported()`: W3-D's module must exist and `FRUIT_PROTOTYPE_IS_STUB` must be False. Both conditions now hold.
 
 The first cluster sets on day 79-81 in daily steps on the oracle (seeds 1..8), so every age up to 76 is vegetative.
 
@@ -93,6 +96,7 @@ Mutation checks (`tests/heliades/test_plantarch_w4d.py::test_mutations_are_caugh
 | attraction disabled | `steps` |
 | cordon buds not woken | `steps` |
 | leaf pulling disabled | `age76` |
+| berry scatter `make_vec3(randn, randn, randn)` drawn left to right | `age84` |
 
 ## Findings and discrepancies
 
@@ -111,18 +115,15 @@ Mutation checks (`tests/heliades/test_plantarch_w4d.py::test_mutations_are_caugh
 
 ## Remaining work
 
-- **`GrapevineFruitPrototype`** (AS:1774-1935):
-  - Berry count, branch skeleton, berry seeding (`make_vec3(randn, randn, randn)`, which is right to left), 400 packing iterations.
-  - The O(n²) overlap pass can be vectorised exactly: for each k, accumulate `-P[i,k]` for i ascending, then `+P[k,j]` for j ascending, through `np.where` to keep signed zeros.
-  - `Context::addSphere` differs from `add_sphere_object`: the radius is inside `sphere2cart`, and the top cap is wound (v2, v1, v0). A local helper is needed.
-  - Open question: whether the unqualified `sin`, `cos` and `std::pow(float, int)` resolve to the float or the double versions in that TU. Settle it with a compile probe (`typeid` of `sin(float)` with `global.h` included) before trusting the geometry.
-  - When it is done, set `FRUIT_PROTOTYPE_IS_STUB = False`.
-- **W3-D inflorescence**: with no flower prototype, the bud goes straight to FRUITING. This needs:
-  - fruit prototypes built `unique_prototypes = 5` times through the hook, with `sampleOrganBuildParameters` per prototype;
-  - the peduncle (yaw 180, pitch 50-90);
-  - `fruit_gravity_factor_fraction` 0.7.
-
-  After that, run `plantarch.grape.age120` (it un-gates by itself).
+- `GrapevineFruitPrototype` libm choices:
+  - A compile probe of a TU with Assets.cpp's includes and `using namespace helios` settled them:
+    - unqualified `sin`/`cos` of a float are the C **double** functions;
+    - `std::pow(float, int)` is double;
+    - `std::pow(float, float)` is `powf`.
+  - `cbrtf` and `roundf` follow from the `std::` float overloads.
+  - The 400-iteration O(n²) overlap pass is vectorised over berries, but each berry's displacement is accumulated in the C++ pair order: `-P[i,k]` for i ascending, then `+P[k,j]` for j ascending. It uses masked assignment, so a skipped pair adds nothing (not even a signed zero).
+  - The whole thing is oracle-verified through the age-84 and age-120 snapshots.
+- Build parameters for organs: W3-D's `inflorescence.sample_organ_build_parameters` still raises for a distribution. Fixed organ values (`berry_diameter`, `cluster_berry_count`) are passed through. Only the defaults and the fixed age-0 set are oracle-checked; no case grows clusters with non-default organ values.
 - **`plant.py` XML writer** for prescribed shoots and build parameters (owned by W3-D). This is why the grape cases compare the snapshot and the shoot summary instead of the XML.
 - Not ported:
   - `appendShootFromNodePositions` (axis continuation);
@@ -133,5 +134,5 @@ Mutation checks (`tests/heliades/test_plantarch_w4d.py::test_mutations_are_caugh
 
 ## Requests for core (not done)
 
-- `Context::addSphere` (primitive version, not the object version).
-- `expf`, `cbrtf`, `powf`, `atan2f` in `core/vec.py`. `expf` is loaded locally in `grapevine.py`.
+- `Context::addSphere` (the primitive version). It is implemented locally in `grapevine._add_sphere` for now.
+- `expf`, `cbrtf`, `powf`, `atan2f` in `core/vec.py`. They are loaded locally in `grapevine.py`.

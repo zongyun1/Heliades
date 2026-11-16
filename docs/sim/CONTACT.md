@@ -278,3 +278,43 @@ extrapolated 8.7e8.
 5. Supported inverse: dense stability check (O(n³)), frictionless-surface-curvature approximation,
    prestress-minimal force choice (other criteria are possible), batch member 0 only.
 6. Floating bases cannot be inverted (B2) and must have a single child edge.
+
+## 11. GPU: B4's contact slot
+
+The CPU solve is written as the five stages B4's slot expects (`contact.py`):
+`prepare_contacts` (detect), `free_velocities` (free motion), the k×k operator, `solve_impulses`
+(PGS with targets, warm start and safeguards), and `contact_body_forces` (apply).
+`heliades/sim/gpu/contact.py::ContactSlotSolver` runs the same stages inside
+`TreeSimGPU.step` (`sim.contact = solver`, between the factorisation and the integration sweep):
+
+| stage | CPU (`TreeSim`) | GPU slot (`ContactSlotSolver`) |
+|---|---|---|
+| 1 detect | `prepare_contacts` at q_n | the same, on a float64 host mirror of the device kinematics |
+| 2 free motion | contact-free `u̇` of the step | `slot_free_motion` |
+| 3 operator | path formula, O(k·depth + k²) | 3·K_max `factor_response_device` columns (Baraff O(kn)), each batched over all envs |
+| 4 PGS | `solve_impulses` (Warp CPU kernel) | the same |
+| 5 apply | `TreeSim.response(−F)` | `slot_apply(F)` |
+
+Agreement (test `test_gpu_contact_slot_matches_cpu`): finger push, 0.9 s, fp64 **7e-16 m** and fp32
+**3e-7 m**; tomato lying on the ground, fp32 **3.5e-7 m**, with the same contacts and the reaction
+equal to 4 digits.
+
+**Current status: host-synchronous.** Every step reads device buffers (Q, u, response columns),
+so the solver needs `TreeSimGPU(..., use_graph=False)`. It costs about 0.25 s per step for 63
+contacts, because each of the 189 response columns is 2·nlev launches plus a host sync. It is a
+correctness reference, not a fast path. A graph-resident version needs:
+
+1. A **detection kernel**: per (feature, collider) gap and normal, compacted into fixed-capacity
+   per-env slots (`k_max`) with atomic counters, and a stable key per slot for warm start.
+2. A **device free-velocity kernel**: plain velocity propagation of `u + h u̇_free` to the contact
+   points (one level sweep), not the modified accelerations `acc0/acc1`.
+3. **The operator.** Either k_max response solves batched as extra right-hand sides (a
+   `factor_response` variant over (n, k_max) buffers, giving one launch per level instead of k),
+   or the path formula of §3 as kernels. The path formula is cheaper for deep, wide trees: one
+   thread per contact walks its root path with the stored `UD, W, D⁻¹, X', S'` (the B4 buffers
+   W0/W1, UD0/UD1, Dinv, Xa/Xc, Smt), and one thread per (c, c′) pair does the LCA gather.
+4. **PGS** as one block per env on the dense k×k W in shared memory (k ≤ 64), including the disk
+   QP and the safeguards. This is `contact_wp._pgs_kernel` with the column update parallelised
+   over the block.
+5. **Apply:** a kernel that scatters `[(p−o)×f; f]` into df0/df1 (atomics per body), then
+   `slot_apply`. This step is already graph-safe.

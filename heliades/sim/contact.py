@@ -659,76 +659,126 @@ def pgs_numpy(W, v_free, target, mu, valid, lam0=None, iters=200, tol=1e-6, sor=
 
 
 # ---------------------------------------------------------------- step hook
-def solve_contacts(sim, k, fac, h, udot_free, acc_free, colliders):
-    """Called from TreeSim.step after the contact-free solve. Returns the change
-    (d_udot, d_acc) caused by the contact impulses and stores sim.contact."""
-    import time
-    t0 = time.perf_counter()
-    T, B = sim.topo, sim.B
-    cm, prm = _contact_model(sim)
+@dataclass
+class ContactStage:
+    """Contacts of one step, packed per batch member (B, K): the data every stage shares.
+    Stages (the same on CPU and in the GPU slot, heliades/sim/gpu/contact.py):
+      1. detect          prepare_contacts(...)            -> ContactStage
+      2. free motion     free_velocities(stage, vel_fn)   -> v_free (B, 3K)
+      3. k x k operator  W (CPU: delassus() path formula; GPU: 3K factor-response columns)
+      4. PGS             solve_impulses(stage, W, v_free, ...) -> impulses
+      5. apply           contact_body_forces(stage, ...)  -> spatial body forces for the factor"""
+    valid: np.ndarray
+    body: np.ndarray
+    p: np.ndarray
+    n: np.ndarray
+    phi: np.ndarray
+    key: np.ndarray
+    vc: np.ndarray
+    mu: np.ndarray
+    col: np.ndarray
+    D: np.ndarray          # (B, K, 3, 3) rows n, t1, t2
+
+
+def prepare_contacts(sim, k, colliders, h, prm=None):
+    """Stage 1: detection at q_n (k: TreeSim._Kin of `sim`) and packing. None if no contact."""
     cand = detect(sim, k, colliders, h, prm)
-    zero = (np.zeros_like(udot_free), np.zeros_like(acc_free))
     if cand is None or len(cand.bi) == 0:
-        sim.contact = None
-        sim._contact_cache = None
-        return zero
-    valid, pk = _pack(cand, B)
-    body, p, n, phi = pk(cand.body), pk(cand.p), pk(cand.n), pk(cand.phi, 1.0)
-    key, vc, mu, col = pk(cand.key, -1), pk(cand.vc), pk(cand.mu), pk(cand.col, -1)
+        return None
+    valid, pk = _pack(cand, sim.B)
+    n = pk(cand.n)
     t1, t2 = _tangents(np.where(valid[..., None], n, np.array([0.0, 0.0, 1.0])))
-    D = np.stack([n, t1, t2], -2)                              # (B, K, 3, 3)
-    t_det = time.perf_counter()
-    W = delassus(sim, fac, body, p, D, valid)
-    t_del = time.perf_counter()
-    fl = T.float_idx
-    u_free = sim.u + h * udot_free
-    vf_free = sim.v_float + h * acc_free[:, fl, 3:] if len(fl) else sim.v_float
-    vrel = point_velocity(sim, u_free, vf_free, body, p) - vc
-    v_free = np.einsum("bkij,bkj->bki", D, vrel).reshape(B, -1)
+    return ContactStage(valid, pk(cand.body), pk(cand.p), n, pk(cand.phi, 1.0), pk(cand.key, -1), pk(cand.vc),
+                        pk(cand.mu), pk(cand.col, -1), np.stack([n, t1, t2], -2))
+
+
+def free_velocities(st: ContactStage, point_vel):
+    """Stage 2: contact-frame velocities (B, 3K) of the contact-free update; point_vel(body, p)
+    returns the plant point velocities (B, K, 3) for u* = u_n + h a_free."""
+    vrel = point_vel(st.body, st.p) - st.vc
+    return np.einsum("bkij,bkj->bki", st.D, vrel).reshape(st.valid.shape[0], -1)
+
+
+def solve_impulses(st: ContactStage, W, v_free, h, prm, colliders, cache=None):
+    """Stage 4: normal targets, warm start, PGS (Coulomb cone), safeguards.
+    Returns (lam (B, K, 3) in the contact frames, lam_w (B, K, 3) world impulses, iters,
+    residual, alpha, new warm-start cache)."""
+    valid, phi, D, key = st.valid, st.phi, st.D, st.key
+    B = valid.shape[0]
     # normal targets: speculative (phi > 0) or capped Baumgarte recovery (phi < 0)
     target = np.where(phi >= 0, -phi / h, np.minimum(-prm.erp * phi / h, prm.max_recovery))
     # a body deep inside a sphere / capsule has contacts with opposing normals: separating all of
     # them at once can be infeasible, so deep ones only recover slowly (half-spaces are always
     # consistent: every normal is the same)
-    planar = np.array([isinstance(c, GroundPlane) for c in colliders] + [True])[col]
+    planar = np.array([isinstance(c, GroundPlane) for c in colliders] + [True])[st.col]
     deep = (phi < -prm.max_depth_recovery) & ~planar
     target = np.where(deep, np.minimum(target, prm.deep_recovery), target)
     target = np.where(valid, target, 0.0)
     # warm start by key (impulse stored as a world vector, re-projected on the new frame)
     lam0 = None
-    cache = sim._contact_cache
     if prm.warm_start and cache is not None:
         lam0 = np.zeros((B, valid.shape[1], 3))
-        for b in range(B):
-            kb, lw = cache
+        kb, lw = cache
+        for b in range(min(B, len(kb))):
             kk, ll = kb[b], lw[b]
             m = kk >= 0
             if not m.any():
                 continue
             kk, ll = kk[m], ll[m]
             o = np.argsort(kk)
-            pos = np.searchsorted(kk[o], key[b])
-            pos = np.minimum(pos, len(kk) - 1)
+            pos = np.minimum(np.searchsorted(kk[o], key[b]), len(kk) - 1)
             hit = (kk[o][pos] == key[b]) & valid[b]
             lam0[b, hit] = np.einsum("kij,kj->ki", D[b, hit], ll[o][pos][hit])
     lam_max = impulse_cap(W, v_free, target, valid, prm.impulse_cap) if prm.impulse_cap else None
-    lam, iters, rel = pgs(W, v_free, target, mu, valid, lam0, prm.iters, prm.tol, prm.sor, prm.backend, lam_max)
+    lam, iters, rel = pgs(W, v_free, target, st.mu, valid, lam0, prm.iters, prm.tol, prm.sor, prm.backend, lam_max)
     lam, alpha = _limit_velocity(W, v_free, target, lam, valid)
-    t_pgs = time.perf_counter()
     lam_w = np.einsum("bkji,bkj->bki", D, lam)                 # world impulse vectors
-    sim._contact_cache = (np.where(valid, key, -1), lam_w)
-    # back-substitution: impulses as body forces through the same factorisation
+    return lam, lam_w, iters, rel, alpha, (np.where(valid, key, -1), lam_w)
+
+
+def contact_body_forces(st: ContactStage, lam_w, h, o, nb):
+    """Stage 5: spatial body forces (B, nb, 6) [moment about the body origin o; force], world,
+    of the impulses lam_w (forces f = lam / h). The factor folds them in (CPU: bias -forces in
+    TreeSim.response; GPU: slot_apply)."""
+    B = st.valid.shape[0]
     f = lam_w / h
-    bi = np.broadcast_to(np.arange(B)[:, None], body.shape)
-    pA = np.zeros((B, T.nb, 6))
-    m = valid
-    rr = p - fac.o[bi, body]
-    np.add.at(pA, (bi[m], body[m]), -np.concatenate([_cross(rr, f), f], -1)[m])
-    d_udot, d_acc = sim.response(pA, fac)
+    bi = np.broadcast_to(np.arange(B)[:, None], st.body.shape)
+    m = st.valid
+    rr = st.p - o[bi, st.body]
+    F = np.zeros((B, nb, 6))
+    np.add.at(F, (bi[m], st.body[m]), np.concatenate([_cross(rr, f), f], -1)[m])
+    return F
+
+
+def solve_contacts(sim, k, fac, h, udot_free, acc_free, colliders):
+    """Called from TreeSim.step after the contact-free solve (the CPU instance of the staged
+    pipeline above). Returns the change (d_udot, d_acc) caused by the contact impulses and
+    stores sim.contact."""
+    import time
+    t0 = time.perf_counter()
+    T, B = sim.topo, sim.B
+    cm, prm = _contact_model(sim)
+    st = prepare_contacts(sim, k, colliders, h, prm)                         # 1. detect
+    if st is None:
+        sim.contact = None
+        sim._contact_cache = None
+        return np.zeros_like(udot_free), np.zeros_like(acc_free)
+    t_det = time.perf_counter()
+    W = delassus(sim, fac, st.body, st.p, st.D, st.valid)                    # 3. k x k operator
+    t_del = time.perf_counter()
+    fl = T.float_idx
+    u_free = sim.u + h * udot_free
+    vf_free = sim.v_float + h * acc_free[:, fl, 3:] if len(fl) else sim.v_float
+    v_free = free_velocities(st, lambda b, p: point_velocity(sim, u_free, vf_free, b, p))   # 2. free motion
+    lam, lam_w, iters, rel, alpha, sim._contact_cache = solve_impulses(        # 4. PGS
+        st, W, v_free, h, prm, colliders, sim._contact_cache)
+    t_pgs = time.perf_counter()
+    F = contact_body_forces(st, lam_w, h, fac.o, T.nb)                       # 5. apply
+    d_udot, d_acc = sim.response(-F, fac)
     t_end = time.perf_counter()
     v_after = (v_free + np.einsum("bij,bj->bi", W, lam.reshape(B, -1))).reshape(B, -1, 3)
-    sim.contact = ContactResult(valid, body, p, n, phi, lam, f * valid[..., None], col, key, iters, rel,
-                                W=W, v_free=v_free.reshape(B, -1, 3), v_after=v_after,
+    sim.contact = ContactResult(st.valid, st.body, st.p, st.n, st.phi, lam, lam_w / h * st.valid[..., None], st.col,
+                                st.key, iters, rel, W=W, v_free=v_free.reshape(B, -1, 3), v_after=v_after,
                                 alpha=alpha,
                                 timing={"detect": t_det - t0, "delassus": t_del - t_det,
                                         "pgs": t_pgs - t_del, "backsub": t_end - t_pgs, "total": t_end - t0})

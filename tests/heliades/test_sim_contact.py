@@ -394,3 +394,61 @@ def test_inverse_with_known_support_forces_tomato(tomato):
     err = np.abs(res.R0rel - T.R0rel[None]).max()
     print(f"known support force {Ftot} N, rest recovered to {err:.1e}")
     assert err < 1e-8 and res.status == ["stable"]
+
+
+# ---------------------------------------------------------------- 7. GPU contact slot (B4)
+def _cuda():
+    try:
+        import warp as wp
+        wp.init()
+        return wp.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _cuda(), reason="needs a CUDA device")
+def test_gpu_contact_slot_matches_cpu(tomato):
+    """The same staged contact pipeline through B4's GPU slot (free motion, 3K factor-response
+    columns, PGS, slot_apply) reproduces the CPU contact: finger push (E = 1e9, inverse rest)
+    and the plant lying on the ground (E = 1e8). fp64: round-off; fp32: fp32 tolerance."""
+    from heliades.sim.gpu import TreeSimGPU
+    from heliades.sim.gpu.contact import ContactSlotSolver
+    H = 1 / 60
+    P = [tomato.physics.copy(stem_youngs_modulus=1e9)]
+    finger, _ = finger_for_leaf(tomato)
+    res = inverse_statics(TreeSim(tomato, P))
+    for prec, tol in (("float64", 1e-10), ("float32", 1e-4)):
+        c = TreeSim(tomato, P, colliders=[GroundPlane(0.0, mu=0.5)])
+        apply_rest(c, res)
+        g = TreeSimGPU(tomato, P, precision=prec, use_graph=False)
+        g.set_rest(res.R0rel)
+        g.reset(Q=res.Q)
+        sol = ContactSlotSolver(g, [])
+        g.contact = sol
+        dmax, touched = 0.0, False
+        for _ in range(54):
+            fz = finger(c.t)
+            c.step(H, external=[fz], damping=5.0)
+            sol.colliders = [fz, GroundPlane(0.0, mu=0.5)]
+            g.step(H, damping=5.0)
+            touched |= sol.result is not None
+            dmax = max(dmax, float(np.abs(g.state.x - c.state.x).max()))
+        print(f"finger {prec}: max |x_gpu - x_cpu| = {dmax:.2e} m")
+        assert touched and dmax < tol
+    P = [tomato.physics.copy(stem_youngs_modulus=1e8)]
+    base = TreeSim(tomato, P, colliders=[GroundPlane(0.0, mu=0.5)])
+    base.run(3.0, H, damping=5.0, record=lambda q: 0)
+    c = TreeSim(tomato, P, colliders=[GroundPlane(0.0, mu=0.5)])
+    c.reset(Q=base.Q, u=base.u)
+    g = TreeSimGPU(tomato, P, precision="float32", use_graph=False)
+    g.reset(Q=base.Q, u=base.u)
+    g.contact = sol = ContactSlotSolver(g, [GroundPlane(0.0, mu=0.5)])
+    dmax = 0.0
+    for _ in range(15):
+        c.step(H, damping=5.0)
+        g.step(H, damping=5.0)
+        dmax = max(dmax, float(np.abs(g.state.x - c.state.x).max()))
+    Fc, Fg = c.contact.total_force()[0], sol.total_force()[0]
+    print(f"ground fp32: max |dx| = {dmax:.2e} m, reaction cpu {Fc} gpu {Fg}")
+    assert sol.result["stage"].valid.sum() == c.contact.count[0] > 20
+    assert dmax < 1e-4 and np.abs(Fg - Fc).max() < 1e-3 * np.abs(Fc).max()

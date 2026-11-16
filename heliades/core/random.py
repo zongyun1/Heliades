@@ -292,4 +292,7 @@ class ContextRandom:
     def randn(self, mean=None, stddev=None):
         if mean is None:
             return self.norm(self.generator)
-        return _f32(_f32(mean) + _f32(self.norm(self.generator) * _f32(abs(_f32(stddev)))))
+        # Context.cpp: `mean + norm(gen) * fabs(stddev)`; C fabs() returns double, so the whole
+        # expression is evaluated in double and rounded once (verified: 5000/5000 draws).
+        z = float(self.norm(self.generator))
+        return _f32(float(_f32(mean)) + z * abs(float(_f32(stddev))))

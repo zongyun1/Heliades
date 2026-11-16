@@ -152,6 +152,20 @@ def helios_snapshot(ctx) -> Snapshot:
         C = np.c_[C, np.ones(n, np.float32)]
     o = np.argsort(uu)
     P = np.array([ctx.getPrimitiveParentObjectID(int(u)) for u in uu[o]], np.int64)
+    # textures: batch UV / solid fraction for the explicit UUID list (getAllUUIDs is not sorted). Texture
+    # files are read one by one: the batch getter slices the decoded str with C byte offsets, which is
+    # wrong for non-ASCII paths (migration/notes/W1-A.md).
+    us = [int(u) for u in uu[o]]
+    UV, nuv = np.zeros((n, 4, 2), np.float32), np.zeros(n, np.int32)
+    SF = np.ones(n, np.float32)
+    tex = [ctx.getPrimitiveTextureFile(u) for u in us]
+    if n:
+        flat, uoff = ctx.getPrimitiveTextureUV(us)
+        flat, uoff = np.asarray(flat, np.float32), np.asarray(uoff, np.int64)
+        for i in range(n):
+            k = (uoff[i + 1] - uoff[i]) // 2
+            UV[i, :k], nuv[i] = flat[uoff[i]:uoff[i + 1]].reshape(-1, 2), k
+        SF = np.asarray(ctx.getPrimitiveSolidFraction(us), np.float32).reshape(n)
     oids = sorted(ctx.getAllObjectIDs())
     from .snapshot import ObjectTable
     objs = ObjectTable(
@@ -161,7 +175,7 @@ def helios_snapshot(ctx) -> Snapshot:
         np.array([[*_vec(ctx.getObjectCenter(i))] for i in oids], np.float32).reshape(-1, 3),
         np.array([np.asarray(ctx.getObjectTransformationMatrix(i), np.float32).reshape(16) for i in oids],
                  np.float32).reshape(-1, 16))
-    return Snapshot(uu[o], T[o], V[o], nv[o], A[o], N[o], C[o], P, objs)
+    return Snapshot(uu[o], T[o], V[o], nv[o], A[o], N[o], C[o], P, objs, uv=UV, nuv=nuv, texture=tex, solid_fraction=SF)
 
 
 def _vec(v):

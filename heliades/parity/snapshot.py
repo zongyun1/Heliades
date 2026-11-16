@@ -35,10 +35,23 @@ class Snapshot:
     color: np.ndarray      # (n,4) float32 RGBA
     parent: np.ndarray = None           # (n,) int64 parent object ID (0 = none)
     objects: ObjectTable = field(default_factory=ObjectTable.empty)
+    uv: np.ndarray = None               # (n,4,2) float32 getPrimitiveTextureUV, padded with 0
+    nuv: np.ndarray = None              # (n,) int32 number of UVs (0 = untextured, 3 triangle, 4 patch)
+    texture: list = None                # (n,) str getPrimitiveTextureFile as the backend reports it ('' = none)
+    solid_fraction: np.ndarray = None   # (n,) float32 getPrimitiveSolidFraction
 
     def __post_init__(self):
+        n = len(self.uuid)
         if self.parent is None:
-            self.parent = np.zeros(len(self.uuid), np.int64)
+            self.parent = np.zeros(n, np.int64)
+        if self.uv is None:
+            self.uv = np.zeros((n, 4, 2), np.float32)
+        if self.nuv is None:
+            self.nuv = np.zeros(n, np.int32)
+        if self.texture is None:
+            self.texture = [""] * n
+        if self.solid_fraction is None:
+            self.solid_fraction = np.ones(n, np.float32)
 
     def __len__(self):
         return len(self.uuid)

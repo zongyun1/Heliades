@@ -95,9 +95,17 @@ class Primitive:
     transform: np.ndarray                      # float32[16], row-major 4x4
     color: np.ndarray = field(default_factory=lambda: np.array([0, 0, 0, 1], f32))
     parent_object: int = 0
-    solid_fraction: float = 1.0
-    texture_file: str | None = None
-    uv: np.ndarray | None = None
+    solid_fraction: np.float32 = f32(1.0)   # Primitive::solid_fraction (from the texture's alpha mask)
+    texture_file: str | None = None         # the material's texture_file, verbatim as passed to addPatch etc.
+    uv: np.ndarray | None = None            # (k,2) float32 texture (u,v) per vertex; None = Helios's empty vector
+
+    @ports("Primitive::hasTexture")
+    def has_texture(self) -> bool:
+        return bool(self.texture_file)
+
+    @ports("Primitive::getTextureUV")
+    def texture_uv(self) -> np.ndarray:
+        return np.zeros((0, 2), f32) if self.uv is None else self.uv.copy()
 
     def vertices(self) -> np.ndarray:
         return _apply(self.transform, _PATCH_Y if self.type == PATCH else _TRI_Y)

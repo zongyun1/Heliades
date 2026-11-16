@@ -14,7 +14,7 @@ import numpy as np
 CASES: dict[str, dict] = {}
 
 
-def case(name: str, tier: str = "ulp", max_ulp: int = 4, fuzz: int = 1):
+def case(name: str, tier: str = "ulp", max_ulp: int = 0, fuzz: int = 1):
     def deco(fn):
         CASES[name] = dict(fn=fn, tier=tier, max_ulp=max_ulp, fuzz=fuzz)
         return fn
@@ -41,14 +41,14 @@ def rng_randu_int(B, seed):
     return [B.randu(-3, 7 + 1000 * seed) for _ in range(500)]
 
 
-@case("core.random.randn", tier="ulp", max_ulp=2, fuzz=8)
+@case("core.random.randn", tier="exact", fuzz=8)
 def rng_randn(B, seed):
     """log/sqrt go through libm, so allow an ulp or two."""
     B.seed(seed)
     return [B.randn() for _ in range(500)] + [B.randn(1.5, -0.2) for _ in range(500)]
 
 
-@case("core.random.interleaved", tier="ulp", max_ulp=2, fuzz=4)
+@case("core.random.interleaved", tier="exact", fuzz=4)
 def rng_interleaved(B, seed):
     """Mixed calls check the normal's saved spare and the shared generator state."""
     B.seed(seed)

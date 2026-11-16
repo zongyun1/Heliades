@@ -72,9 +72,9 @@ def test_materials_sorted_and_renamed(tmp_path):
     p = _write(tmp_path, "m.obj", "mtllib m.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl b\nf 1 2 3\nusemtl a\nf 1 3 2\n")
     S = Scene()
     u = S.load_obj(p)
-    assert [S.primitive_material_label(x) for x in u] == ["a", "b"]           # std::map order, not file order
+    assert [S.get_primitive_material_label(x) for x in u] == ["a", "b"]           # std::map order, not file order
     u2 = S.load_obj(p)
-    assert [S.primitive_material_label(x) for x in u2] == ["a_1", "b_1"]
+    assert [S.get_primitive_material_label(x) for x in u2] == ["a_1", "b_1"]
 
 
 def test_tomato_flower_counts():

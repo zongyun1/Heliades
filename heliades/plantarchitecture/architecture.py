@@ -8,7 +8,9 @@ the very same :class:`~heliades.core.random.MinstdRand0` object, so ``scene.seed
 before or after construction is equivalent (SPEC §3.4) and every ``RandomParameter`` initialised with
 ``self.generator`` draws from the Scene stream.
 
-Growth (``buildPlantInstanceFromLibrary``, ``advanceTime``, ...) belongs to W3 and is not here.
+W3-B adds the minimal plant-building entry points (``addPlantInstance``, ``addBaseStemShoot``,
+``breakPlantDormancy``, ``setPlantPhenologicalThresholds``, ``buildPlantInstanceFromLibrary`` at age 0); they
+delegate to ``shoot_min``. Growth (``advanceTime``) is W3-C.
 """
 from __future__ import annotations
 
@@ -48,13 +50,18 @@ class PlantArchitecture:
             "age", "rank", "plantID", "plant_name", "plant_height", "plant_type", "phenology_stage", "leafID",
             "peduncleID", "closedflowerID", "openflowerID", "fruitID", "carbohydrate_concentration",
             "leaf_texture_stage")}
+        from . import shoot_min
+        shoot_min.init_plant_state(self)
 
     # ---- registry -------------------------------------------------------------------------------
 
     @ports("PlantArchitecture::initializePlantModelRegistrations")
     def initializePlantModelRegistrations(self):
         from .library import register_all
+        from .library.tomato import buildTomatoPlant
         register_all(self)
+        # W3-B: the tomato builder (age-0 part). library/__init__.py still lists no builder (W3-E owns it).
+        self.plant_builders["tomato"] = lambda pos: buildTomatoPlant(self, pos)
 
     @ports("PlantArchitecture::registerPlantModel")
     def registerPlantModel(self, name, shoot_init, plant_build, plant_type="herbaceous", leaf_inclination_Beta=(0.0, 0.0)):
@@ -135,10 +142,38 @@ class PlantArchitecture:
     def getRandomGenerator(self):
         return self.generator
 
-    # ---- not yet ported (W3) --------------------------------------------------------------------
+    # ---- plant building (W3-B minimal path; growth is W3-C) -------------------------------------
+
+    def invalidateOrganIndex(self):
+        self.organ_index_current = False
+
+    @ports("PlantArchitecture::addPlantInstance")
+    def addPlantInstance(self, base_position, current_age):
+        from .shoot_min import addPlantInstance
+        return addPlantInstance(self, base_position, current_age)
+
+    @ports("PlantArchitecture::addBaseStemShoot")
+    def addBaseStemShoot(self, plantID, current_node_number, base_rotation, internode_radius, internode_length_max,
+                         internode_length_scale_factor_fraction, leaf_scale_factor_fraction, radius_taper,
+                         shoot_type_label):
+        from .shoot_min import addBaseStemShoot
+        return addBaseStemShoot(self, plantID, current_node_number, base_rotation, internode_radius,
+                                internode_length_max, internode_length_scale_factor_fraction,
+                                leaf_scale_factor_fraction, radius_taper, shoot_type_label)
+
+    @ports("PlantArchitecture::breakPlantDormancy")
+    def breakPlantDormancy(self, plantID):
+        from .shoot_min import breakPlantDormancy
+        breakPlantDormancy(self, plantID)
+
+    @ports("PlantArchitecture::setPlantPhenologicalThresholds")
+    def setPlantPhenologicalThresholds(self, plantID, *args, **kw):
+        from .shoot_min import setPlantPhenologicalThresholds
+        setPlantPhenologicalThresholds(self, plantID, *args, **kw)
 
     @ports("PlantArchitecture::buildPlantInstanceFromLibrary")
     def buildPlantInstanceFromLibrary(self, base_position, age, build_parameters=None):
+        """PL:653-760 for a model without build parameters, collision or leaf-inclination tracking."""
         if not self.current_plant_model:
             raise PlantArchitectureError("ERROR (PlantArchitecture::buildPlantInstanceFromLibrary): current plant "
                                          "model has not been initialized from library. You must call "
@@ -146,7 +181,64 @@ class PlantArchitecture:
         if self.current_plant_model not in self.plant_builders:
             raise PlantArchitectureError("ERROR (PlantArchitecture::buildPlantInstanceFromLibrary): plant label of "
                                          f"{self.current_plant_model} does not exist in the library.")
-        raise NotImplementedError("buildPlantInstanceFromLibrary is W3-E (needs the Phytomer/Shoot ports)")
+        if build_parameters:
+            raise NotImplementedError("build parameters are not ported (tomato declares none)")
+        self.current_build_parameters = {}
+        self.current_organ_build_parameters = {}
+        self.current_build_plant_name = self.current_plant_model
+        try:
+            plantID = self.plant_builders[self.current_plant_model](base_position)
+        finally:
+            self.current_build_parameters = {}
+            self.current_organ_build_parameters = {}
+            self.current_build_plant_name = ""
+        self.plant_instances[plantID].plant_name = self.current_plant_model
+        if self.output_object_data.get("plant_name") or self.output_object_data.get("plant_type"):
+            raise NotImplementedError("optional plant_name / plant_type object data are not ported")
+        if self.current_plant_model in self.plant_leaf_inclination_distribution_map:
+            raise NotImplementedError("leaf inclination distribution tracking is not ported")
+        if f32(age) > 0:
+            self.advanceTime(plantID, age)
+        return plantID
+
+    # ---- growth (W3-C, growth.py) ------------------------------------------------------------
+
+    @ports("PlantArchitecture::advanceTime")
+    def advanceTime(self, *args):
+        """advanceTime(days) (all plants), advanceTime(plantID or [plantIDs], days), advanceTime(years, days)."""
+        from .growth import advanceTime
+        if len(args) == 1:
+            return advanceTime(self, sorted(self.plant_instances), args[0])
+        a, b = args
+        if isinstance(a, (list, tuple)):
+            return advanceTime(self, list(a), b)
+        return advanceTime(self, [int(a)], b)
+
+    def advanceTimeYears(self, time_step_years: int, time_step_days):
+        """advanceTime(int years, float days): float(years) * 365.f + days."""
+        from .growth import advanceTime
+        return advanceTime(self, sorted(self.plant_instances), f32(f32(f32(time_step_years) * f32(365)) + f32(time_step_days)))
+
+    @ports("PlantArchitecture::addChildShoot")
+    def addChildShoot(self, plantID, parent_shoot_ID, parent_node_index, current_node_number, shoot_base_rotation,
+                      internode_radius, internode_length_max, internode_length_scale_factor_fraction,
+                      leaf_scale_factor_fraction, radius_taper, shoot_type_label, petiole_index=0):
+        from .growth import addChildShoot
+        return addChildShoot(self, plantID, parent_shoot_ID, parent_node_index, current_node_number, shoot_base_rotation,
+                             internode_radius, internode_length_max, internode_length_scale_factor_fraction,
+                             leaf_scale_factor_fraction, radius_taper, shoot_type_label, petiole_index)
+
+    @ports("PlantArchitecture::appendPhytomerToShoot")
+    def appendPhytomerToShoot(self, plantID, shootID, phytomer_parameters, internode_radius, internode_length_max,
+                              internode_length_scale_factor_fraction, leaf_scale_factor_fraction):
+        from .growth import appendPhytomerToShoot
+        return appendPhytomerToShoot(self, plantID, shootID, phytomer_parameters, internode_radius, internode_length_max,
+                                     internode_length_scale_factor_fraction, leaf_scale_factor_fraction)
+
+    @ports("PlantArchitecture::incrementPhytomerInternodeGirth")
+    def incrementPhytomerInternodeGirth(self, plantID, shootID, node_number, dt, update_context_geometry):
+        from .growth import incrementPhytomerInternodeGirth
+        incrementPhytomerInternodeGirth(self, plantID, shootID, node_number, dt, update_context_geometry)
 
 
 __all__ = ["PlantArchitecture", "context_generator", "vec3"]

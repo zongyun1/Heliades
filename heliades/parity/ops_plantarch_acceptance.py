@@ -15,10 +15,11 @@
 * ``pa_accept_build_two(seed, age, positions)``, ``pa_accept_canopy(...)``, ``pa_accept_staggered(seed)``: the
   multi-plant builds.
 
-Flower gating: :func:`oracle_has_inflorescence` builds the oracle plant and reports whether any inflorescence
+Flowering pairs: :func:`oracle_has_inflorescence` builds the oracle plant and reports whether any inflorescence
 geometry (a peduncle object, or the hidden flower / fruit prototypes, which outlive a flower that died) was ever
-made; :func:`inflorescence_geometry_implemented` is the Heliades capability check. Both are pure functions of
-(seed, age) and the code base, so both backends gate a pair identically.
+made; it only labels the grid now. :func:`inflorescence_geometry_implemented` is the capability check (true since
+W3-D merged); ``HELIADES_PARITY_FLOWERING=0`` turns it off, and then the flowering pairs are gated (both backends
+return the same sentinel), which is how the grid ran before W3-D.
 """
 from __future__ import annotations
 
@@ -48,11 +49,12 @@ def _code(s: str) -> float:
 # ---- gating -----------------------------------------------------------------------------------------
 
 def inflorescence_geometry_implemented() -> bool:
-    """True once W3-D's inflorescence geometry is merged: the module exists and the Phytomer seam no longer
-    raises the W3-D placeholder. ``HELIADES_ASSUME_INFLORESCENCE=0/1`` overrides (for testing the gate)."""
-    env = os.environ.get("HELIADES_ASSUME_INFLORESCENCE")
-    if env is not None:
-        return env == "1"
+    """True when Heliades builds inflorescence geometry (W3-D, merged): the module exists and the Phytomer seam
+    delegates to it. ``HELIADES_PARITY_FLOWERING=0/1`` (shared with ``cases_plantarch_inflo``) overrides: ``0``
+    gates the flowering pairs of the grid again."""
+    flag = os.environ.get("HELIADES_PARITY_FLOWERING")
+    if flag is not None:
+        return flag not in ("", "0")
     if importlib.util.find_spec("heliades.plantarchitecture.inflorescence") is None:
         return False
     from ..plantarchitecture.phytomer import Phytomer

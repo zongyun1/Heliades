@@ -409,7 +409,7 @@ class PlantArchitectureAPI:
         for attr in ("unique_closed_flower_prototype_objIDs", "unique_open_flower_prototype_objIDs",
                      "unique_fruit_prototype_objIDs"):
             cache = getattr(self, attr, None) or {}
-            for key in sorted(cache):
+            for key in sorted(cache, key=repr):     # keyed by (prototype function, organ build parameters)
                 out += [int(o) for o in cache[key] if self._exists(o)]
         return out
 

@@ -62,6 +62,11 @@ class PlantArchitecture(PlantArchitectureAPI):
             "leaf_texture_stage")}
         from . import shoot_min
         shoot_min.init_plant_state(self)
+        # the inflorescence prototype caches (H:6700-6704), keyed by (prototype function, organ build parameters);
+        # inflorescence._caches would create them lazily, here they exist from the start like the C++ members
+        self.unique_closed_flower_prototype_objIDs = {}
+        self.unique_open_flower_prototype_objIDs = {}
+        self.unique_fruit_prototype_objIDs = {}
 
     # ---- registry -------------------------------------------------------------------------------
 

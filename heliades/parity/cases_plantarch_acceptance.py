@@ -29,11 +29,11 @@ Multi-plant (Context seeds 1..8 unless noted):
 * ``plantarchitecture.tomato.staggered`` / ``.staggered_state`` (seeds 1..4): plant A, ``advanceTime`` all, plant B
   built at age 4 in the same PlantArchitecture, then ``advanceTime([A, B])``, ``advanceTime(dt, plant_id=B)``, all.
 
-**Flower gating.** From day 56 some seeds flower (W3-C), and the flower / fruit geometry is W3-D's. A pair whose
-oracle plant ever built inflorescence geometry (``oracle_has_inflorescence``) is *gated* while
-``inflorescence_geometry_implemented()`` is false: both backends then return the same sentinel (a one-primitive snapshot,
-``[-999, age, seed]``), so the pair is skipped, not failed, and it switches on by itself when W3-D merges.
-``python -m heliades.parity.cases_plantarch_acceptance`` prints the grid (ran / gated) and the timings.
+**Flowering pairs.** From day 56 some seeds flower (W3-C). Since W3-D merged every pair runs, flowers and fruit
+included. The gate is kept as an escape hatch: with ``HELIADES_PARITY_FLOWERING=0`` a pair whose oracle plant ever
+built inflorescence geometry (``oracle_has_inflorescence``) returns the same sentinel on both backends (a
+one-primitive snapshot, ``[-999, age, seed]``). ``python -m heliades.parity.cases_plantarch_acceptance`` prints
+which pairs flower.
 """
 from __future__ import annotations
 
@@ -173,7 +173,8 @@ def grid_report() -> str:
         for seed in SEEDS:
             row.append("F " if oracle_has_inflorescence(seed, age) else ". ")
         lines.append(f"{age:5.0f} " + "  ".join(row))
-    lines.append("(F = the oracle plant builds inflorescence geometry: gated until W3-D; . = flower-free, runs)")
+    lines.append("(F = the oracle plant builds inflorescence geometry; . = flower-free. Every pair runs unless "
+                 "HELIADES_PARITY_FLOWERING=0, which gates the F pairs)")
     return "\n".join(lines)
 
 

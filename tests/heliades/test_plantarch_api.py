@@ -9,7 +9,6 @@ from heliades.core.scene import Scene
 from heliades.plantarchitecture import PlantArchitecture
 from heliades.plantarchitecture import leaf_prototype  # noqa: F401  (real blades)
 from heliades.plantarchitecture.api import PUBLIC_API, SNAKE_ALIASES
-from heliades.plantarchitecture.params import BUD_FLOWER_CLOSED
 from heliades.plantarchitecture.structure import xml_to_structure_dict
 
 f32 = np.float32
@@ -143,34 +142,29 @@ def test_gating(monkeypatch):
     from heliades.parity import cases_plantarch_acceptance as CA
     from heliades.parity import ops_plantarch_acceptance as OA
     assert [CA.grid_pair(s) for s in (0, 7, 8, 47)] == [(10.0, 1), (10.0, 8), (30.0, 1), (120.0, 8)]
-    monkeypatch.setenv("HELIADES_ASSUME_INFLORESCENCE", "1")
-    assert OA.inflorescence_geometry_implemented()
-    monkeypatch.setenv("HELIADES_ASSUME_INFLORESCENCE", "0")
+    monkeypatch.setenv("HELIADES_PARITY_FLOWERING", "0")
     assert not OA.inflorescence_geometry_implemented()
-    monkeypatch.delenv("HELIADES_ASSUME_INFLORESCENCE")
-    from heliades.plantarchitecture.phytomer import Phytomer
-    import inspect
-    seam = "is W3-D" in inspect.getsource(Phytomer.updateInflorescence)
-    assert OA.inflorescence_geometry_implemented() == (not seam)
+    monkeypatch.setenv("HELIADES_PARITY_FLOWERING", "1")
+    assert OA.inflorescence_geometry_implemented()
+    monkeypatch.delenv("HELIADES_PARITY_FLOWERING")
+    assert OA.inflorescence_geometry_implemented(), "W3-D is merged: no pair of the grid may be gated"
 
 
-def test_gated_pairs_really_need_flowers(monkeypatch):
-    """A pair the gate skips must reach the W3-D seam on Heliades, and a pair it runs must not (checked on one
-    of each at day 75; the grid itself checks every ungated pair against the oracle)."""
+def test_flowering_pair_builds_flowers():
+    """Seed 2 flowers by day 75 in the oracle; Heliades builds the flowers / fruit and the queries see them."""
     pytest.importorskip("pyhelios")
     from heliades.parity import ops_plantarch_acceptance as OA
-    if OA.inflorescence_geometry_implemented():
-        pytest.skip("inflorescence geometry is implemented: nothing is gated")
     assert not OA.oracle_has_inflorescence(1, 75.0) and OA.oracle_has_inflorescence(2, 75.0)
     s, pa = _tomato(2)
-    with pytest.raises(NotImplementedError, match="W3-D"):
-        pa.buildPlantInstanceFromLibrary((0, 0, 0), 75)
-    s, pa = _tomato(2)
-    pa.inflorescence_geometry_draws_only = True
     pid = pa.buildPlantInstanceFromLibrary((0, 0, 0), 75)
-    states = [fb.state for sh in pa.plant_instances[pid].shoot_tree for ph in sh.phytomers
-              for pet in ph.floral_buds for fb in pet]
-    assert any(st >= BUD_FLOWER_CLOSED for st in states)
+    organs = pa.getPlantFlowerObjectIDs(pid) + pa.getPlantFruitObjectIDs(pid)
+    assert organs and pa.getPlantPeduncleObjectIDs(pid)
+    assert set(organs) <= set(pa.getAllPlantObjectIDs(pid))
+    assert len(pa.getAllPrototypeObjectIDs()) > 35            # + the flower / fruit prototypes
+    d = pa.plant_structure_dict(pid)
+    buds = [fb for sd in d["shoots"] for pd in sd["phytomers"] for pet in pd["internode"].get("petioles", [])
+            for fb in pet.get("floral_buds", [])]
+    assert any(fb["inflorescence"].get("flowers") for fb in buds)
 
 
 def test_flatten_marks_structure():

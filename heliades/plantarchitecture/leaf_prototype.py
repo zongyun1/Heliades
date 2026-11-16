@@ -650,9 +650,156 @@ def GenericLeafPrototype(context_ptr, prototype_parameters, compound_leaf_index:
             raise PlantArchitectureError("ERROR (PlantArchitecture): A leaf prototype has both a class map "
                                          "(LeafPrototype::leaf_class_map_file) and a texture series "
                                          "(LeafPrototype::leaf_texture_series), which cannot be combined.")
-        raise NotImplementedError("PlantArchitecture::recordSpectralClassMap is not ported (leaf class maps)")
+        recordSpectralClassMap(ctx, ctx.object_primitive_uuids(objID), leaf_texture, class_map, "leaf",
+                               " A class map is made for one leaf texture (see utilities/leaf_class_maps). If the leaf "
+                               "texture was changed, clear LeafPrototype::leaf_class_map_file, or set it to a class map "
+                               "made for the new texture.")
 
     return objID
+
+
+# ---- spectral class maps (PA:714-787, global.cpp:2137-2220; W4-C) ------------------------------------------
+
+_CLASS_MAP_CACHE: dict = {}
+
+
+def _read_png_single_channel(path: str):
+    """helios::readPNGSingleChannel: an 8- or 16-bit grayscale PNG as (height, width) uint16, row 0 the top row."""
+    import os
+    from PIL import Image
+    from ..core.texture import _png_header
+    if os.path.splitext(path)[1].lower() != ".png":
+        raise PlantArchitectureError(f"ERROR (readPNGSingleChannel): File {path} is not PNG format. Save it as an 8-bit or "
+                                     "16-bit grayscale PNG.")
+    w, h, depth, ctype, trns = _png_header(path)
+    if ctype == 3:
+        raise PlantArchitectureError(f"ERROR (readPNGSingleChannel): File {path} is an indexed-color PNG.")
+    if ctype != 0:
+        raise PlantArchitectureError(f"ERROR (readPNGSingleChannel): File {path} has more than one channel.")
+    if depth not in (8, 16):
+        raise PlantArchitectureError(f"ERROR (readPNGSingleChannel): File {path} has a bit depth of {depth}.")
+    if trns is not None:
+        raise PlantArchitectureError(f"ERROR (readPNGSingleChannel): File {path} marks one gray value as transparent.")
+    with Image.open(path) as im:
+        im.load()
+        a = np.asarray(im)
+    return np.asarray(a, np.uint16).reshape(h, w)
+
+
+def _clipped_polygon_area(polygon, u0, u1, v0, v1) -> float:
+    """Area of a convex polygon inside [u0,u1] x [v0,v1] by Sutherland-Hodgman clipping (global.cpp:2144), double."""
+    clipped = list(polygon)
+
+    def clip(inside, intersect):
+        nonlocal clipped
+        out = []
+        n = len(clipped)
+        for i in range(n):
+            cur = clipped[i]
+            prev = clipped[(i + n - 1) % n]
+            if inside(cur):
+                if not inside(prev):
+                    out.append(intersect(prev, cur))
+                out.append(cur)
+            elif inside(prev):
+                out.append(intersect(prev, cur))
+        clipped = out
+
+    def at_u(e):
+        return lambda a, b: (e, a[1] + (b[1] - a[1]) * (e - a[0]) / (b[0] - a[0]))
+
+    def at_v(e):
+        return lambda a, b: (a[0] + (b[0] - a[0]) * (e - a[1]) / (b[1] - a[1]), e)
+
+    clip(lambda p: p[0] >= u0, at_u(u0))
+    clip(lambda p: p[0] <= u1, at_u(u1))
+    clip(lambda p: p[1] >= v0, at_v(v0))
+    clip(lambda p: p[1] <= v1, at_v(v1))
+    twice = 0.0
+    n = len(clipped)
+    for i in range(n):
+        a, b = clipped[i], clipped[(i + 1) % n]
+        twice += a[0] * b[1] - b[0] * a[1]
+    return 0.5 * abs(twice)
+
+
+def class_map_covers_a_class(classes: np.ndarray, width: int, height: int, uv) -> bool:
+    """``!helios::classMapAreaFractions(classes, resolution, uv).empty()`` (global.cpp:2179): whether any texel of a
+    non-zero class has a positive clipped area under the polygon. Same cell walk and double arithmetic; it stops
+    at the first such texel, which does not change the answer."""
+    polygon = [(float(f32(c[0])), float(f32(c[1]))) for c in np.asarray(uv, f32).reshape(-1, 2)]
+    u_min = min([1e30] + [p[0] for p in polygon])
+    u_max = max([-1e30] + [p[0] for p in polygon])
+    v_min = min([1e30] + [p[1] for p in polygon])
+    v_max = max([-1e30] + [p[1] for p in polygon])
+    inf = math.inf
+
+    def column_of(u):
+        return 0 if width == 1 else min(max(int(math.floor((width - 1) * u)), 0), width - 1)
+
+    def row_of(v):
+        return 0 if height == 1 else min(max(int(math.floor((height - 1) * (1.0 - v))), 0), height - 1)
+
+    for row in range(row_of(v_max), row_of(v_min) + 1):
+        v_low = -inf if (height == 1 or row == height - 1) else 1.0 - float(row + 1) / float(height - 1)
+        v_high = inf if (height == 1 or row == 0) else 1.0 - float(row) / float(height - 1)
+        for column in range(column_of(u_min), column_of(u_max) + 1):
+            if classes[row, column] == 0:
+                continue
+            u_low = -inf if (width == 1 or column == 0) else float(column) / float(width - 1)
+            u_high = inf if (width == 1 or column == width - 1) else float(column + 1) / float(width - 1)
+            if _clipped_polygon_area(polygon, max(u_low, u_min), min(u_high, u_max), max(v_low, v_min),
+                                     min(v_high, v_max)) > 0:
+                return True
+    return False
+
+
+@ports("PlantArchitecture::recordSpectralClassMap")
+def recordSpectralClassMap(context, UUIDs, texture_file: str, class_map_file: str, organ: str, remedy: str):
+    """Record ``spectral_class_map`` (the resolved class-map path) on each textured triangle that covers a class."""
+    class_map = resolveTextureFile(class_map_file)
+    classes = _CLASS_MAP_CACHE.get(class_map)
+    if classes is None:
+        classes = _read_png_single_channel(class_map)
+        _CLASS_MAP_CACHE[class_map] = classes
+    map_h, map_w = classes.shape
+
+    textured = []
+    for u in UUIDs:
+        f = context.primitive_texture_file(u)
+        if not f or (texture_file and f != texture_file):
+            continue
+        textured.append(u)
+    if not textured:
+        return
+    texture = context.primitive_texture_file(textured[0])
+    tw, th = context.primitive_texture_size(textured[0])
+    if tw != map_w or th != map_h:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture): The {organ} class map {class_map} is {map_w} x {map_h} "
+                                     f"texels, but the {organ} texture {texture} is {tw} x {th}.{remedy}")
+    has_transparency = context.primitive_texture_has_transparency_channel(textured[0])
+    if has_transparency:
+        opaque = np.asarray(context.primitive_texture_transparency_data(textured[0]), bool)
+        bad = opaque == (classes == 0)
+        if bad.any():
+            row, column = map(int, np.argwhere(bad)[0])
+            raise PlantArchitectureError(f"ERROR (PlantArchitecture): The {organ} class map {class_map} does not match the "
+                                         f"transparency of the {organ} texture {texture} (at column {column}, row {row}): class "
+                                         f"0 must mark exactly its transparent texels.{remedy}")
+    elif (classes == 0).any():
+        texel = int(np.flatnonzero(classes.reshape(-1) == 0)[0])
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture): The {organ} class map {class_map} has a texel of class 0 (at "
+                                     f"column {texel % map_w}, row {texel // map_w}), but the {organ} texture {texture} has "
+                                     f"no transparency: every texel must have a class.{remedy}")
+    for u in textured:
+        if context.does_primitive_data_exist(u, "spectral_class_map"):
+            continue
+        if context.primitive_texture_file(u) != texture:
+            raise PlantArchitectureError(f"ERROR (PlantArchitecture): The {organ} class map {class_map} was made for the texture "
+                                         f"{texture}, but the {organ} is also mapped with {context.primitive_texture_file(u)}."
+                                         f"{remedy}")
+        if not has_transparency or class_map_covers_a_class(classes, map_w, map_h, context.primitive_texture_uv(u)):
+            context.set_primitive_data(u, "spectral_class_map", class_map)
 
 
 def _translate_primitives(ctx, uuids, shift):

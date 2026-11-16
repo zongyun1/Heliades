@@ -80,6 +80,77 @@ def atan2f(y, x) -> np.float32:
     return f32(math.atan2(float(f32(y)), float(f32(x))))
 
 
+def _load_expf():
+    try:
+        m = ctypes.CDLL(ctypes.util.find_library("m") or "libm.so.6")
+        fn = m.expf
+        fn.restype, fn.argtypes = ctypes.c_float, [ctypes.c_float]
+        return fn
+    except (OSError, AttributeError):
+        return None
+
+
+_EXPF = _load_expf()
+
+
+def expf(x) -> np.float32:
+    """glibc ``expf``."""
+    if _EXPF is not None:
+        return f32(_EXPF(float(f32(x))))
+    return f32(math.exp(float(f32(x))))
+
+
+def flexibility_aging_progress(age, aging_days) -> np.float32:
+    """PA:5191-5200 (file-static flexibilityAgingProgress), float throughout."""
+    t = f32(f32(age) / f32(aging_days))
+    sigmoid = f32(f32(1) / f32(f32(1) + expf(f32(f32(-2) * f32(t - f32(2))))))
+    sigmoid_at_emergence = f32(f32(1) / f32(f32(1) + expf(f32(4))))
+    p = f32(f32(sigmoid - sigmoid_at_emergence) / f32(f32(1) - sigmoid_at_emergence))
+    return f32(0) if p < 0 else (f32(1) if p > 1 else p)
+
+
+def flexibility_aging_multiplier(age, aging_days, aging_max) -> np.float32:
+    """PA:5209-5212 (file-static flexibilityAgingMultiplier)."""
+    ceiling = max(f32(1), f32(aging_max))
+    return f32(f32(1) + f32(f32(ceiling - f32(1)) * flexibility_aging_progress(age, aging_days)))
+
+
+def set_polymesh_object_vertices(ctx, objID: int, vertices_global):
+    """Context::setPolymeshObjectVertices -> Polymesh::setVertices (Context_object.cpp:4459-4503). Not in Heliades
+    core yet (W4-C notes): the given global vertices go to the object-local face set through the inverted
+    transform, then every face's triangle is rewritten (``setTriangleVertices``) from ``transformPointByMatrix``."""
+    from ..core import polymesh as PM
+    from ..core.primitives import triangle_transform
+    obj = ctx._polymesh(objID, "setPolymeshObjectVertices")
+    t = PM.topology(obj)
+    if not len(t["faces"]):
+        raise PlantArchitectureError(f"ERROR (Polymesh::setVertices): Polymesh object {objID} carries no face table.")
+    Vg = np.asarray(vertices_global, f32).reshape(-1, 3)
+    if len(Vg) != len(t["vertices"]):
+        raise PlantArchitectureError(f"ERROR (Polymesh::setVertices): Expected {len(t['vertices'])} vertices for polymesh "
+                                     f"object {objID}, but {len(Vg)} were given.")
+    T = obj.transform
+    Ti = PM.make_normal_matrix(T)
+    if Ti is None:
+        raise PlantArchitectureError(f"ERROR (Polymesh::setVertices): The object transformation matrix of polymesh object "
+                                     f"{objID} is singular.")
+    sx, sy, sz = Vg[:, 0] - T[3], Vg[:, 1] - T[7], Vg[:, 2] - T[11]
+    loc = np.empty_like(Vg)
+    loc[:, 0] = (Ti[0] * sx + Ti[3] * sy) + Ti[6] * sz
+    loc[:, 1] = (Ti[1] * sx + Ti[4] * sy) + Ti[7] * sz
+    loc[:, 2] = (Ti[2] * sx + Ti[5] * sy) + Ti[8] * sz
+    t["vertices"] = loc
+    W = np.empty_like(loc)
+    for r in range(3):
+        W[:, r] = ((T[4 * r] * loc[:, 0] + T[4 * r + 1] * loc[:, 1]) + T[4 * r + 2] * loc[:, 2]) + T[4 * r + 3]
+    for f, face in enumerate(t["faces"]):
+        u = obj.uuids[int(t["face_members"][f])]
+        p = ctx.primitives.get(u)
+        if p is None:
+            continue
+        p.transform = triangle_transform(W[face[0]], W[face[1]], W[face[2]])
+
+
 def _v(x) -> np.ndarray:
     return np.asarray(x, f32).reshape(3).copy()
 
@@ -195,7 +266,21 @@ def record_leaf_prototype_rest_geometry(pa, prototype_params, leaves_per_petiole
     T = pa.context_ptr.object_transform(objID_leaf)
     rest.lattice_frame_offset = np.array([T[3], T[7], T[11]], f32)
     if f32(leaf_flexibility) > 0:
-        raise NotImplementedError("recordLeafPrototypeRestGeometry for a flexible leaf (W3-A / later)")
+        # W4-C: the rest lattice in the prototype's own frame (polymesh vertices minus the frame origin), the
+        # petiolule's vertices set aside, Ny recovered from the vertex count (PA:4564-4593)
+        from .leaf_prototype import petioluleVertexCount
+        origin = rest.lattice_frame_offset
+        verts = [np.asarray(v, f32) - origin for v in pa.context_ptr.polymesh_object_vertices(objID_leaf)]
+        npl = petioluleVertexCount()
+        if prototype_params.build_petiolule and len(verts) > npl:
+            rest.appended_vertices = verts[len(verts) - npl:]
+            verts = verts[:len(verts) - npl]
+        rest.vertices = verts
+        rest.subdivisions_x = int(prototype_params.subdivisions)
+        if rest.subdivisions_x > 0 and len(rest.vertices) % (rest.subdivisions_x + 1) == 0:
+            rest.subdivisions_y = len(rest.vertices) // (rest.subdivisions_x + 1) - 1
+        else:
+            rest.vertices, rest.appended_vertices, rest.subdivisions_x = [], [], 0
     key = (int(prototype_params.unique_prototype_identifier), max(int(leaves_per_petiole), 0))
     pa.unique_leaf_prototype_rest_geometry[key][prototype_index].append(rest)
 
@@ -1388,9 +1473,119 @@ class Phytomer:
 
     @ports("Phytomer::deformLeafUnderSelfWeight")
     def deformLeafUnderSelfWeight(self, petiole_index: int, leaf_index: int):
+        """PA:5214-5352 (W4-C): re-deflect a flexible blade from its prototype's rest lattice, in the leaf's frame."""
         if self.leaf_flexibility <= 0:
             return
-        raise NotImplementedError("deformLeafUnderSelfWeight for a flexible leaf is not ported (tomato is rigid)")
+        from .leaf_prototype import deformLeafLattice
+        ctx, pp = self.context_ptr, self.phytomer_parameters
+        flexibility = f32(self.leaf_flexibility)
+        aging_doubling_days = pp.leaf.prototype.flexibility_aging.val()
+        if aging_doubling_days > 0:
+            flexibility = f32(flexibility * flexibility_aging_multiplier(
+                self.age, aging_doubling_days, pp.leaf.prototype.flexibility_aging_max.val()))
+        if petiole_index >= len(self.leaf_prototype_index) or leaf_index >= len(self.leaf_prototype_index[petiole_index]):
+            return
+        if self.leaf_objIDs[petiole_index][leaf_index] in self.leaf_shape_state:
+            raise NotImplementedError("deformLeafUnderSelfWeight of a reshaped leaf (reshapeLeaf) is not ported")
+        prototype = self.leaf_prototype_index[petiole_index][leaf_index]
+        if prototype < 0:
+            return
+        key = (int(pp.leaf.prototype.unique_prototype_identifier), len(self.leaf_prototype_index[petiole_index]))
+        cache = self.plantarchitecture_ptr.unique_leaf_prototype_rest_geometry.get(key)
+        if cache is None or len(cache) <= prototype or len(cache[prototype]) <= leaf_index:
+            return
+        rest = cache[prototype][leaf_index]
+        if not rest.vertices or rest.subdivisions_x == 0:
+            return
+        current_scale = f32(self.current_leaf_scale_factor[petiole_index] * self.leaf_size_max[petiole_index][leaf_index])
+        mature_scale = f32(self.leaf_size_max[petiole_index][leaf_index])
+        if mature_scale <= 0:
+            return
+        last_scale = self.leaf_last_deformed_scale[petiole_index][leaf_index]
+        deflection_state = f32(current_scale * flexibility)
+        if last_scale >= 0 and abs(f32(deflection_state - last_scale)) < f32(f32(1e-3) * max(deflection_state, last_scale)):
+            return
+        objID_leaf = self.leaf_objIDs[petiole_index][leaf_index]
+        if not ctx.does_object_exist(objID_leaf):
+            return
+        T = np.asarray(ctx.object_transform(objID_leaf), f32).reshape(16)
+        column_x = _v((T[0], T[4], T[8]))
+        column_y = _v((T[1], T[5], T[9]))
+        column_z = _v((T[2], T[6], T[10]))
+        determinant = V.dot(column_x, V.cross(column_y, column_z))
+        if not abs(determinant) > 0:
+            raise PlantArchitectureError(f"ERROR (Phytomer::deformLeafUnderSelfWeight): The transformation of leaf object "
+                                         f"{objID_leaf} is singular, so gravity cannot be expressed in its frame.")
+        world_gravity = _v((0, 0, -1))
+        prototype_gravity = V.div(_v((V.dot(V.cross(column_y, column_z), world_gravity),
+                                      V.dot(V.cross(column_z, column_x), world_gravity),
+                                      V.dot(V.cross(column_x, column_y), world_gravity))), determinant)
+        deformed = deformLeafLattice(np.asarray(rest.vertices, f32), rest.subdivisions_x, rest.subdivisions_y, current_scale,
+                                     mature_scale, flexibility, pp.leaf.prototype.flexibility_taper.val(), prototype_gravity)
+        deformed = [V.div(v, current_scale) for v in deformed]
+        if rest.appended_vertices:
+            Nx, j_mid = rest.subdivisions_x, rest.subdivisions_y // 2
+
+            def mid(i):
+                return j_mid * (Nx + 1) + i
+            rv = rest.vertices
+            for rest_vertex in rest.appended_vertices:
+                displacement = np.zeros(3, f32)
+                if rest_vertex[0] > rv[mid(0)][0]:
+                    station = 1
+                    while station < Nx and rv[mid(station)][0] < rest_vertex[0]:
+                        station += 1
+                    x_inner, x_outer = rv[mid(station - 1)][0], rv[mid(station)][0]
+                    t = f32(0)
+                    if x_outer > x_inner:
+                        t = f32(f32(rest_vertex[0] - x_inner) / f32(x_outer - x_inner))
+                        t = f32(0) if t < 0 else (f32(1) if t > 1 else t)
+                    d_inner = deformed[mid(station - 1)] - rv[mid(station - 1)]
+                    d_outer = deformed[mid(station)] - rv[mid(station)]
+                    displacement = d_inner + t * (d_outer - d_inner)
+                deformed.append(np.asarray(rest_vertex, f32) + displacement)
+        deformed_global = [np.array([f32(f32(f32(T[4 * r] * p[0] + T[4 * r + 1] * p[1]) + T[4 * r + 2] * p[2]) + T[4 * r + 3])
+                                     for r in range(3)], f32) for p in deformed]
+        set_polymesh_object_vertices(ctx, objID_leaf, deformed_global)
+        self.leaf_last_deformed_scale[petiole_index][leaf_index] = deflection_state
+
+    @ports("Phytomer::rotateLeaf")
+    def rotateLeaf(self, petiole_index: int, leaf_index: int, rotation: AxisRotation):
+        """PA:4252-4306 (W4-C): turn a placed leaf about its base (roll about the horizontal petiole axis, pitch about
+        the petiole's pitch axis, yaw about z)."""
+        ctx = self.context_ptr
+        if petiole_index >= len(self.leaf_objIDs):
+            raise PlantArchitectureError("ERROR (PlantArchitecture::Phytomer): Invalid petiole index.")
+        if leaf_index >= len(self.leaf_objIDs[petiole_index]):
+            raise PlantArchitectureError("ERROR (PlantArchitecture::Phytomer): Invalid leaf index.")
+        petiole_axis = self.getPetioleAxisVector(f32(1), petiole_index)
+        internode_axis = self.getInternodeAxisVector(f32(1))
+        pitch_axis = _smul(-1, V.cross(internode_axis, petiole_axis))
+        leaves_per_petiole = len(self.leaf_rotation[petiole_index])
+        half = f32(f32(leaves_per_petiole - 1) / f32(2))
+        if leaves_per_petiole > 1 and f32(leaf_index) == half:
+            roll, yaw, compound_rotation = f32(0), f32(0), f32(0)
+        elif leaves_per_petiole > 1 and f32(leaf_index) < half:
+            yaw, roll = f32(-rotation.yaw), f32(-rotation.roll)
+            compound_rotation = f32(-0.5 * float(PI_F))                  # -0.5 * PI_F: double, narrowed
+        else:
+            yaw, roll = f32(-rotation.yaw), f32(rotation.roll)
+            compound_rotation = f32(0)
+        rec = self.leaf_rotation[petiole_index][leaf_index]
+        oid = self.leaf_objIDs[petiole_index][leaf_index]
+        base = self.leaf_bases[petiole_index][leaf_index]
+        if roll != 0:
+            roll_axis = V.rotate_point_about_line(_v((petiole_axis[0], petiole_axis[1], 0)), NULLORIGIN, _v((0, 0, 1)),
+                                                  f32(rec.yaw + compound_rotation))
+            ctx.rotate_object(oid, roll, roll_axis, base)
+            rec.roll = f32(rec.roll + roll)
+        if rotation.pitch != 0:
+            pitch_axis = V.rotate_point_about_line(pitch_axis, NULLORIGIN, _v((0, 0, 1)), f32(-compound_rotation))
+            ctx.rotate_object(oid, f32(rotation.pitch), pitch_axis, base)
+            rec.pitch = f32(rec.pitch + rotation.pitch)
+        if yaw != 0:
+            ctx.rotate_object(oid, yaw, _v((0, 0, 1)), base)
+            rec.yaw = f32(rec.yaw + yaw)
 
     # ---- inflorescence seam (W3-D) --------------------------------------------------------------
 

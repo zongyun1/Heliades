@@ -47,3 +47,11 @@ def register_all(pa):
                               (lambda f=init: f(pa)) if init else _not_ported("shoot initializer", name),
                               (lambda pos, f=build: f(pa, pos)) if build else _not_ported("plant builder", name),
                               plant_type, beta if beta is not None else (0.0, 0.0))
+
+
+# W4-C: strawberry and maize (shoot initializer + builder)
+from . import maize, strawberry  # noqa: E402
+SHOOT_INITIALIZERS["strawberry"] = lambda pa: strawberry.initializeStrawberryShoots(pa)
+PLANT_BUILDERS["strawberry"] = lambda pa, pos: strawberry.buildStrawberryPlant(pa, pos)
+SHOOT_INITIALIZERS["maize"] = lambda pa: maize.initializeMaizeShoots(pa)
+PLANT_BUILDERS["maize"] = lambda pa, pos: maize.buildMaizePlant(pa, pos)

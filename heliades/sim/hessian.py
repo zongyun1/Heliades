@@ -31,7 +31,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .rotation import qmul, quat_from_rotvec, quat_to_matrix, skew
-from .tree import PointForce, _cross, _mv
+from .tree import BodyForce, PointForce, _mv
 
 EYE3 = np.eye(3)
 
@@ -49,6 +49,8 @@ def canon(Q):
 def forward_kinematics(topo, Rrel):
     """Body world rotations / origins / tips from joint relative rotations (B, nb, 3, 3)."""
     T = topo
+    if len(getattr(T, "float_idx", ())):
+        raise NotImplementedError("statics/inverse statics need a clamped tree (no floating bases)")
     B = Rrel.shape[0]
     R = np.empty_like(Rrel)
     o = np.empty((B, T.nb, 3))
@@ -94,8 +96,14 @@ def subtree_loads(sim, R, o, tip, external=None) -> Loads:
     F = m[..., None] * g
     Lb = mc[..., :, None] * g[None, None, None, :]
     for e in external or []:
+        if isinstance(e, BodyForce):
+            b = int(e.body)
+            f = np.broadcast_to(np.asarray(e.force, float), (B, 3))
+            F[:, b] += f
+            Lb[:, b] += _mv(R[:, b], np.asarray(e.local, float))[..., :, None] * f[..., None, :]
+            continue
         if not isinstance(e, PointForce):
-            raise TypeError("inverse statics supports dead PointForce loads only")
+            raise TypeError("inverse statics supports dead PointForce / BodyForce loads only")
         b = T.node_body[e.node]
         if b < 0:
             continue
@@ -164,6 +172,10 @@ def potential(sim, Q=None, external=None):
     com = np.broadcast_to(sim.m, (B, sim.topo.nb))[..., None] * o + _mv(R, np.broadcast_to(sim.h1, (B, sim.topo.nb, 3)))
     pe = -(com @ np.asarray(sim.gravity, float)).sum(1)
     for e in external or []:
+        if isinstance(e, BodyForce):
+            p = o[:, e.body] + _mv(R[:, e.body], np.asarray(e.local, float))
+            pe = pe - (np.broadcast_to(np.asarray(e.force, float), (B, 3)) * p).sum(-1)
+            continue
         b = sim.topo.node_body[e.node]
         if b >= 0:
             pe = pe - (np.broadcast_to(np.asarray(e.force, float), (B, 3)) * tip[:, b]).sum(-1)

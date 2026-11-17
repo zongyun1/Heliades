@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from planttwin.asset import PlantAsset, StemGraph
+from heliades.asset import PlantAsset, StemGraph
 
 
 @dataclass

@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "legacy"))  # planttwin
 from planttwin.procedural import make_plant  # noqa: E402
 from planttwin.real2sim import PokeExperiment  # noqa: E402
 from planttwin.sim import PlantModel  # noqa: E402

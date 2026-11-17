@@ -24,7 +24,7 @@ from typing import Sequence
 
 import numpy as np
 
-from planttwin.asset import PhysicsParams, PlantAsset
+from heliades.asset import PhysicsParams, PlantAsset
 
 from .rotation import qmul, quat_from_matrix, quat_from_rotvec, quat_to_matrix, rotvec_from_quat, skew
 from .topology import TreeTopology

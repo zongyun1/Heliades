@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from planttwin.asset import PhysicsParams, PlantAsset, StemGraph
+from heliades.asset import PhysicsParams, PlantAsset, StemGraph
 
 
 def cantilever_asset(n: int, L: float, r: float, *, E=1e9, rho=1000.0, nu=0.4,
@@ -19,7 +19,7 @@ def cantilever_asset(n: int, L: float, r: float, *, E=1e9, rho=1000.0, nu=0.4,
     fixed[0] = True
     pm = np.zeros(n + 1)
     pm[-1] = tip_mass
-    from planttwin.asset import Fruit
+    from heliades.asset import Fruit
     fruits = [Fruit(node=n, radius=tip_radius, mass=tip_mass)] if tip_mass > 0 else []
     stem = StemGraph(nodes, edges, np.full(n + 1, r), fixed, point_mass=pm,
                      organ=np.zeros(n + 1, int))
@@ -80,7 +80,7 @@ def with_hanging_fruit(asset: PlantAsset, n_fruit: int = 6, mass: float = 0.011,
     plant). Reproduces the "11 g fruit on near-massless pedicels" stress case."""
     from copy import deepcopy
 
-    from planttwin.asset import Fruit
+    from heliades.asset import Fruit
     a = deepcopy(asset)
     st = a.stem
     rng = np.random.default_rng(seed)

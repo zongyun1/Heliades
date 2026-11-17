@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "legacy"))  # planttwin
 from planttwin.camera import Camera  # noqa: E402
 from planttwin.procedural import make_plant  # noqa: E402
 from planttwin.real2sim import (FIT_PARAMS, PokeExperiment, fit, make_synthetic_observation,  # noqa: E402

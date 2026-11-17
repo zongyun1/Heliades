@@ -10,9 +10,11 @@ dependencies = ["numpy>=1.24", "scipy>=1.10", "matplotlib>=3.7", "warp-lang>=1.9
 dev = ["pytest"]
 # oracle: PyHelios built from third_party/pyhelios_src at the pinned Helios baseline (migration/PORTING.md)
 
-[tool.setuptools]
-packages = ["planttwin", "heliades", "heliades.core", "heliades.io", "heliades.parity", "heliades.parity.tools", "heliades.plantarchitecture", "heliades.plantarchitecture.library", "heliades.sim", "heliades.sim.gpu"]
+[tool.setuptools.packages.find]
+# heliades/ is the platform; legacy/planttwin is the original prototype, kept importable as `planttwin`
+where = [".", "legacy"]
+include = ["heliades*", "planttwin*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "legacy"]

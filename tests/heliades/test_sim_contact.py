@@ -55,7 +55,7 @@ def test_refine_keeps_nodes_leaves_and_geometry(tomato):
 
 def _ycross(Y):
     """Clamped vertical trunk with one (chain) or two (Y junction) inclined branches + tip masses."""
-    from planttwin.asset import Fruit, PhysicsParams, PlantAsset, StemGraph
+    from heliades.asset import Fruit, PhysicsParams, PlantAsset, StemGraph
     nodes, edges = [[0, 0, 0.0]], []
     for i in range(1, 5):
         nodes.append([0, 0, 0.1 * i])

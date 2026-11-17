@@ -18,7 +18,7 @@ from typing import Sequence
 import numpy as np
 import warp as wp
 
-from planttwin.asset import PhysicsParams, PlantAsset
+from heliades.asset import PhysicsParams, PlantAsset
 
 from ..rotation import quat_from_matrix
 from ..topology import TreeTopology

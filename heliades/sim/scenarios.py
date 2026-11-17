@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from planttwin.asset import Leaf, PhysicsParams, PlantAsset, StemGraph
+from heliades.asset import Leaf, PhysicsParams, PlantAsset, StemGraph
 
 from .analytic import cantilever_asset
 from .contact import CapsuleObstacle, main_axis, stake

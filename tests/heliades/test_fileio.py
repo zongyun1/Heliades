@@ -4,7 +4,7 @@ import pytest
 
 from heliades.core import obj as O
 from heliades.core.scene import Scene
-from heliades.parity.cases_fileio import TOMATO
+from heliades.parity.suites.core.cases_fileio import TOMATO
 
 f32 = np.float32
 
@@ -111,7 +111,7 @@ def test_errors(tmp_path):
 
 def test_parse_float_rounds_through_double():
     """helios::parse_float is (float)std::stod: double rounding, not a direct decimal->float32."""
-    from heliades.parity.cases_fileio import double_rounding_trap
+    from heliades.parity.suites.core.cases_fileio import double_rounding_trap
     s = double_rounding_trap(0.3)
     ok, v = O.parse_float(s)
     assert ok and v == f32(float(s))

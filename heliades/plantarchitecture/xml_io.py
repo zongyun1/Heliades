@@ -4,7 +4,7 @@
 
 Text-identical to Helios for the tomato path: every number goes through :func:`cout`, which is what
 ``std::ostream << float`` prints (default precision 6, ``%g``), integers and booleans as C++ streams them. It is
-the shoot / phytomer / bud state oracle of ``cases_plantarch_growth``. Branches for features Heliades does not
+the shoot / phytomer / bud state oracle of ``parity.suites.plantarch.cases_growth``. Branches for features Heliades does not
 grow (prescribed shoots and petioles, reshaped or posed leaves, shed petioles, peduncle swings, build
 parameters, leaf-angle tracking) raise ``NotImplementedError`` when they would write something.
 """

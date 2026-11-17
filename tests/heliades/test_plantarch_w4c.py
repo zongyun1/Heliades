@@ -173,7 +173,7 @@ MUTATIONS = {
 @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
-    from heliades.parity import cases_plantarch_w4c as CW
+    from heliades.parity.suites.plantarch import cases_strawberry_maize as CW
     from heliades.parity.ops import load_plugins
     load_plugins()
     module, owner, attr, old, new, case_name = MUTATIONS[mutation]

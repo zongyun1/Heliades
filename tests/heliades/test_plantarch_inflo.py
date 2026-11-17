@@ -144,7 +144,7 @@ def test_update_peduncle_radii_reanchors_and_matches_culm():
 def test_driver_plant_matches_pyhelios_xml():
     """The trace driver links the same libhelios.so as PyHelios: its plant (bud states, flower yaws) is PyHelios's."""
     pytest.importorskip("pyhelios")
-    from heliades.parity import ops_plantarch_inflo as M
+    from heliades.parity.suites.plantarch import ops_inflo as M
     from heliades.parity.backends import HeliosBackend
     seed, age, reseed = M.grid(0)
     buds = M.oracle_dump(seed, age, reseed)
@@ -177,7 +177,7 @@ def _mutate(monkeypatch, old, new):
 
 
 def _fails(monkeypatch, names, seeds=(0,)):
-    from heliades.parity import ops_plantarch_inflo as M
+    from heliades.parity.suites.plantarch import ops_inflo as M
     from heliades.parity import run_case
     monkeypatch.setattr(M, "_SMALL", {})
     return [n for n in names for s in seeds if not run_case(n, s).ok]

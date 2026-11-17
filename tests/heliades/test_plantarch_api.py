@@ -139,8 +139,8 @@ def test_advance_time_keyword_forms():
 
 
 def test_gating(monkeypatch):
-    from heliades.parity import cases_plantarch_acceptance as CA
-    from heliades.parity import ops_plantarch_acceptance as OA
+    from heliades.parity.suites.plantarch import cases_tomato_acceptance as CA
+    from heliades.parity.suites.plantarch import ops_tomato_acceptance as OA
     assert [CA.grid_pair(s) for s in (0, 7, 8, 47)] == [(10.0, 1), (10.0, 8), (30.0, 1), (120.0, 8)]
     monkeypatch.setenv("HELIADES_PARITY_FLOWERING", "0")
     assert not OA.inflorescence_geometry_implemented()
@@ -153,7 +153,7 @@ def test_gating(monkeypatch):
 def test_flowering_pair_builds_flowers():
     """Seed 2 flowers by day 75 in the oracle; Heliades builds the flowers / fruit and the queries see them."""
     pytest.importorskip("pyhelios")
-    from heliades.parity import ops_plantarch_acceptance as OA
+    from heliades.parity.suites.plantarch import ops_tomato_acceptance as OA
     assert not OA.oracle_has_inflorescence(1, 75.0) and OA.oracle_has_inflorescence(2, 75.0)
     s, pa = _tomato(2)
     pid = pa.buildPlantInstanceFromLibrary((0, 0, 0), 75)
@@ -168,6 +168,6 @@ def test_flowering_pair_builds_flowers():
 
 
 def test_flatten_marks_structure():
-    from heliades.parity.ops_plantarch_acceptance import flatten
+    from heliades.parity.suites.plantarch.ops_tomato_acceptance import flatten
     assert flatten([[1, 2], [3]]) != flatten([[1], [2, 3]])
     assert flatten(np.array([1, 2, 3], f32)) == flatten(type("V", (), {"x": 1, "y": 2, "z": 3})())

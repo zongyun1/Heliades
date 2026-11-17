@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 """Per-module backend operations, so parallel porting work never edits a shared adapter.
 
-In ``heliades/parity/ops_<area>.py``::
+In ``heliades/parity/suites/<group>/ops_<area>.py`` (``<group>`` is ``core``, ``plantarch``, ...)::
 
-    from .ops import op
+    from ...ops import op
 
     @op("add_sphere", "helios")
     def _(B, ndiv, center, radius, color=None): return B.ctx.addSphereObject(...)
@@ -11,8 +11,8 @@ In ``heliades/parity/ops_<area>.py``::
     @op("add_sphere", "heliades")
     def _(B, ndiv, center, radius, color=None): return B.scene.add_sphere_object(...)
 
-Cases then call ``B.add_sphere(...)`` on either backend. Modules named ``ops_*`` and ``cases_*`` in
-this package are imported automatically.
+Cases then call ``B.add_sphere(...)`` on either backend. Modules named ``ops_*`` and ``cases_*`` anywhere
+under ``heliades.parity.suites`` are imported automatically.
 """
 from __future__ import annotations
 
@@ -36,12 +36,12 @@ _loaded = False
 
 
 def load_plugins():
-    """Import every ops_* and cases_* module in heliades.parity (idempotent)."""
+    """Import every ops_* and cases_* module under heliades.parity.suites (idempotent)."""
     global _loaded
     if _loaded:
         return
     _loaded = True
-    import heliades.parity as pkg
-    for m in pkgutil.iter_modules(pkg.__path__):
-        if m.name.startswith(("ops_", "cases_")):
-            importlib.import_module(f"heliades.parity.{m.name}")
+    import heliades.parity.suites as pkg
+    for m in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
+        if not m.ispkg and m.name.rsplit(".", 1)[-1].startswith(("ops_", "cases_")):
+            importlib.import_module(m.name)

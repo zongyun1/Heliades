@@ -171,7 +171,7 @@ def _patch_source(monkeypatch, module, owner, attr, old, new):
                                       "no_child_offset_update", "single_substep", "elongate_own_internode_only"])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
-    from heliades.parity import cases_plantarch_growth as CG
+    from heliades.parity.suites.plantarch import cases_growth as CG
     from heliades.parity.ops import load_plugins
     load_plugins()
     from heliades.plantarchitecture import phytomer as PH

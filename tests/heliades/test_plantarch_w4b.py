@@ -149,7 +149,7 @@ _HOOKS = {"_bean_phytomer_creation": ("BeanPhytomerCreationFunction", BEAN),
 @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
-    from heliades.parity import cases_plantarch_w4b as CW
+    from heliades.parity.suites.plantarch import cases_bean_soybean as CW
     from heliades.parity.ops import load_plugins
     load_plugins()
     monkeypatch.setattr(CW, "STEP_AGES", tuple(range(2, 21, 2)))

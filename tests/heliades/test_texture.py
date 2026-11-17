@@ -7,7 +7,7 @@ import pytest
 from heliades.core.scene import Scene
 from heliades.core.texture import (Texture, get_file_extension, read_png_alpha, resolve_file_path,
                                    try_resolve_file_path)
-from heliades.parity.cases_texture import ALPHA_TEXTURES, _PA, synthetic_pngs, write_png
+from heliades.parity.suites.core.cases_texture import ALPHA_TEXTURES, _PA, synthetic_pngs, write_png
 
 f32 = np.float32
 LEAF = _PA + "TomatoLeaf.png"

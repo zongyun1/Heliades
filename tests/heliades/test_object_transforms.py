@@ -1,4 +1,4 @@
-"""Heliades-only checks of W1-B semantics (the Helios parity cases live in heliades/parity/cases_object_transforms.py)."""
+"""Heliades-only checks of W1-B semantics (the Helios parity cases live in heliades/parity/suites/core/cases_object_transforms.py)."""
 import math
 
 import numpy as np

@@ -4,7 +4,7 @@ import pytest
 
 from heliades.core import materials as M
 from heliades.core.scene import Scene
-from heliades.parity.cases_fileio import OBJ_DIR, TOMATO
+from heliades.parity.suites.core.cases_fileio import OBJ_DIR, TOMATO
 
 f32 = np.float32
 

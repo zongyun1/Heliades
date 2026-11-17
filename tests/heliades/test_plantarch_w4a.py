@@ -129,7 +129,7 @@ MUTATIONS = ["cherry_leaf_scale_float", "cherry_inode_scale_float", "capsicum_in
 @pytest.mark.parametrize("mutation", MUTATIONS)
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
-    from heliades.parity import cases_plantarch_w4a as CW
+    from heliades.parity.suites.plantarch import cases_cherrytomato_capsicum as CW
     from heliades.parity.ops import load_plugins
     from heliades.plantarchitecture import library as L
     from heliades.plantarchitecture import phytomer as PH

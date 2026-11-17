@@ -108,7 +108,7 @@ def test_age0_structure():
 
 
 def test_cluster_prototype_builds():
-    from heliades.parity.cases_plantarch_w4d import cluster_geometry_ported
+    from heliades.parity.suites.plantarch.cases_grapevine import cluster_geometry_ported
     assert cluster_geometry_ported()
     s = Scene()
     s.seed_random_generator(5)
@@ -143,7 +143,7 @@ def _patch_source(monkeypatch, module, owner, attr, old, new):
                                       "no_leaf_pulling", "berry_scatter_left_to_right"])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
-    from heliades.parity import cases_plantarch_w4d as CW
+    from heliades.parity.suites.plantarch import cases_grapevine as CW
     from heliades.parity.ops import load_plugins
     load_plugins()
     monkeypatch.setattr(CW, "STEP_AGES", tuple(range(2, 37, 2)))

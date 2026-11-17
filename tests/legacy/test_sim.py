@@ -34,6 +34,7 @@ def test_asset_roundtrip(tmp_path, plant):
     assert p2.physics == plant.physics
 
 
+@pytest.mark.slow
 def test_equilibrium_is_static(plant):
     """After settling, the undisturbed plant must not drift (catches twist/flip modes)."""
     m = PlantModel(plant)
@@ -43,6 +44,7 @@ def test_equilibrium_is_static(plant):
     assert np.abs(X - xe[None]).max() < 2e-3
 
 
+@pytest.mark.slow
 def test_stiffer_stem_sags_less(plant):
     m = PlantModel(plant)
     m.set_params([plant.physics.copy(stem_youngs_modulus=E) for E in (5e7, 2e8, 1e9)])
@@ -52,6 +54,7 @@ def test_stiffer_stem_sags_less(plant):
     assert sag[0] > sag[1] > sag[2] > 0
 
 
+@pytest.mark.slow
 def test_batch_matches_single(plant):
     m = PlantModel(plant)
     phys = [plant.physics, plant.physics.copy(stem_youngs_modulus=3e8)]
@@ -62,6 +65,7 @@ def test_batch_matches_single(plant):
     np.testing.assert_allclose(xb[1], xs[0], atol=1e-10)
 
 
+@pytest.mark.slow
 def test_sphere_pushes_leaf(plant):
     m = PlantModel(plant)
     xe, qe = m.settle()

@@ -95,6 +95,7 @@ def test_refinement_convergence_order_of_critical_modulus():
     assert np.all(np.abs(orders[True][-1] - 1) < 0.2)
 
 
+@pytest.mark.slow
 def test_tomato_critical_modulus_converges_with_refinement(tomato):
     Es = {}
     for f in (1, 2, 4):
@@ -232,6 +233,7 @@ def test_block_on_incline_sticks_or_slips_at_mu(ratio):
 
 
 # ---------------------------------------------------------------- 4. tomato
+@pytest.mark.slow
 def test_tomato_below_critical_falls_and_rests_on_ground(tomato):
     """E = 1e8 (< E_cr): the plant folds over onto the ground at h = 1/60 and comes to rest,
     no explosion and no penetration > 0.1 mm once landed."""
@@ -276,6 +278,7 @@ def test_finger_pushes_leaf_and_plant_recovers_target(tomato):
     assert drift < 1e-3
 
 
+@pytest.mark.slow
 def test_stake_holds_soft_plant_up(tomato):
     """E = 1e8 plant leaning on a rough stake (mu = 1) stays upright; on a smooth one (mu = 0.4)
     the stem slides off sideways; without a stake it folds."""
@@ -327,6 +330,7 @@ def test_collider_spawned_inside_canopy_does_not_explode(tomato):
     assert np.isfinite(s.state.x).all() and (vp < 5.0).all()
 
 
+@pytest.mark.slow
 def test_batched_contact_runs_at_B16(tomato):
     s = TreeSim(tomato, [tomato.physics.copy(stem_youngs_modulus=1e8)] * 16, colliders=[GroundPlane(0.0, mu=0.5)])
     s.run(1.0, 1 / 60, damping=5.0, record=lambda q: 0)
@@ -407,6 +411,7 @@ def _cuda():
 
 
 @pytest.mark.skipif(not _cuda(), reason="needs a CUDA device")
+@pytest.mark.slow
 def test_gpu_contact_slot_matches_cpu(tomato):
     """The same staged contact pipeline through B4's GPU slot (free motion, 3K factor-response
     columns, PGS, slot_apply) reproduces the CPU contact: finger push (E = 1e9, inverse rest)

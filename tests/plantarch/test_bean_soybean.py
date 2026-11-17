@@ -146,7 +146,10 @@ _HOOKS = {"_bean_phytomer_creation": ("BeanPhytomerCreationFunction", BEAN),
           "_soybean_flower": ("SoybeanFlowerPrototype", SOY), "_bean_flower": ("BeanFlowerPrototype", BEAN)}
 
 
-@pytest.mark.parametrize("mutation", sorted(MUTATIONS))
+SLOW_MUTATIONS = {"soybean_closed_flower_mesh", "bean_flower_open_closed_swapped"}   # >= 5 s
+
+
+@pytest.mark.parametrize("mutation", [pytest.param(m, marks=pytest.mark.slow) if m in SLOW_MUTATIONS else m for m in sorted(MUTATIONS)])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
     from heliades.parity.suites.plantarch import cases_bean_soybean as CW

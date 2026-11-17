@@ -79,7 +79,7 @@ def test_cherrytomato_callback_prunes_low_leaves_from_day_101():
     assert not ph.hasLeaf() and not any(s.does_object_exist(o) for o in leaves)
 
 
-@pytest.mark.parametrize("crop, age", [("cherrytomato", 75), ("capsicum", 80)])
+@pytest.mark.parametrize("crop, age", [pytest.param("cherrytomato", 75, marks=pytest.mark.slow), ("capsicum", 80)])
 def test_vegetative_to_gallery_age(crop, age):
     """No (crop, gallery age, Context seed 1..8) builds a peduncle, flower or fruit."""
     for seed in range(1, 9):
@@ -126,7 +126,10 @@ MUTATIONS = ["cherry_leaf_scale_float", "cherry_inode_scale_float", "capsicum_in
              "cherry_pruning_height"]
 
 
-@pytest.mark.parametrize("mutation", MUTATIONS)
+SLOW_MUTATIONS = {"cherry_pruning_height", "capsicum_inode_scale_double", "capsicum_fruit_no_randn"}   # >= 5 s
+
+
+@pytest.mark.parametrize("mutation", [pytest.param(m, marks=pytest.mark.slow) if m in SLOW_MUTATIONS else m for m in MUTATIONS])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
     from heliades.parity.suites.plantarch import cases_cherrytomato_capsicum as CW

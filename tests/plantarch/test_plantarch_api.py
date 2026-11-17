@@ -150,6 +150,7 @@ def test_gating(monkeypatch):
     assert OA.inflorescence_geometry_implemented(), "W3-D is merged: no pair of the grid may be gated"
 
 
+@pytest.mark.slow
 def test_flowering_pair_builds_flowers():
     """Seed 2 flowers by day 75 in the oracle; Heliades builds the flowers / fruit and the queries see them."""
     pytest.importorskip("pyhelios")

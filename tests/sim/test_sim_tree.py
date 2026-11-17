@@ -21,6 +21,7 @@ def _tip_deflection(sim, z0=1.0):
 
 
 # ---------------------------------------------------------------- 1. tip load, small deflection
+@pytest.mark.slow
 def test_tip_load_matches_beam_theory_and_is_step_independent():
     n, L, r, E = 20, 1.0, 0.005, 1e9
     _, I = section(r)
@@ -75,6 +76,7 @@ def test_large_deflection_matches_elastica():
 
 
 # ---------------------------------------------------------------- 4. dynamics
+@pytest.mark.slow
 def test_first_natural_frequency():
     n, L, r, E, rho = 20, 0.5, 0.003, 1e9, 1000.0
     A, I = section(r)

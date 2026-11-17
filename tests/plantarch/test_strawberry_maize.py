@@ -170,7 +170,11 @@ MUTATIONS = {
 }
 
 
-@pytest.mark.parametrize("mutation", sorted(MUTATIONS))
+SLOW_MUTATIONS = {"aging_exp_double", "no_droop", "no_flexibility_aging", "maize_no_flag_leaf_angle",   # >= 5 s each
+                  "maize_flex_factor_float", "maize_no_flex_taper", "rotate_leaf_axis_sign"}
+
+
+@pytest.mark.parametrize("mutation", [pytest.param(m, marks=pytest.mark.slow) if m in SLOW_MUTATIONS else m for m in sorted(MUTATIONS)])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
     from heliades.parity.suites.plantarch import cases_strawberry_maize as CW

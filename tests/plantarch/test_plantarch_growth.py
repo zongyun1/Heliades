@@ -46,6 +46,7 @@ def test_substep_schedule(monkeypatch, days, expected):
     assert seen == expected
 
 
+@pytest.mark.slow
 def test_split_identities():
     """advanceTime(20) == advanceTime(10) twice, but != advanceTime(5) four times (SPEC §6)."""
     texts = []
@@ -68,6 +69,7 @@ def test_growth_engine_calls_seed5(age, calls):
     assert calls_between(5, s.rng.generator) == calls
 
 
+@pytest.mark.slow
 def test_lateral_shoots_and_node_cap():
     s, pa = _tomato(3)
     pid = pa.buildPlantInstanceFromLibrary((0, 0, 0), 50)
@@ -98,6 +100,7 @@ def test_tube_objects_follow_the_stored_nodes():
             assert np.array_equal(s.tube_object_nodes(ph.petiole_objIDs[0]), np.array(ph.petiole_vertices[0], f32))
 
 
+@pytest.mark.slow
 def test_flowering_geometry_and_draws_only_agree():
     """Seed 6 initiates its first flower bud on day 56 (node 8, created day 16, +40 days). The real W3-D geometry
     and the draws-only replay consume the same engine calls."""
@@ -116,6 +119,7 @@ def test_flowering_geometry_and_draws_only_agree():
     assert all(b.state == BUD_DEAD for ph in main.phytomers for p in ph.axillary_vegetative_buds for b in p)
 
 
+@pytest.mark.slow
 def test_no_flowers_before_day_55():
     for seed in range(1, 9):
         s, pa = _tomato(seed)
@@ -167,8 +171,11 @@ def _patch_source(monkeypatch, module, owner, attr, old, new):
         monkeypatch.setattr(getattr(module, owner), attr, getattr(getattr(mod, owner), attr))
 
 
-@pytest.mark.parametrize("mutation", ["drop_leaf_scale_resample", "bud_break_ge", "girth_full_step",
-                                      "no_child_offset_update", "single_substep", "elongate_own_internode_only"])
+SLOW_MUTATIONS = {"bud_break_ge", "no_child_offset_update"}   # >= 5 s each
+
+
+@pytest.mark.parametrize("mutation", [pytest.param(m, marks=pytest.mark.slow) if m in SLOW_MUTATIONS else m for m in ["drop_leaf_scale_resample", "bud_break_ge", "girth_full_step",
+                                      "no_child_offset_update", "single_substep", "elongate_own_internode_only"]])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
     from heliades.parity.suites.plantarch import cases_growth as CG

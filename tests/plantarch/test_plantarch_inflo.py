@@ -220,6 +220,7 @@ MUTATIONS = {
 }
 
 
+@pytest.mark.slow                                   # ~10 s each (W3-D inflorescence recompiles)
 @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
@@ -230,6 +231,7 @@ def test_mutations_are_caught(monkeypatch, mutation):
     assert _fails(monkeypatch, cases) == cases
 
 
+@pytest.mark.slow
 def test_unmutated_source_passes(monkeypatch):
     pytest.importorskip("pyhelios")
     from heliades.parity.ops import load_plugins

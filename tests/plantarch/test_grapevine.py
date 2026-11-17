@@ -138,9 +138,12 @@ def _patch_source(monkeypatch, module, owner, attr, old, new):
     return obj
 
 
-@pytest.mark.parametrize("mutation", ["wander_left_to_right", "prescribed_radius_constant",
+SLOW_MUTATIONS = {"no_leaf_pulling", "berry_scatter_left_to_right", "no_attraction"}   # >= 5 s each
+
+
+@pytest.mark.parametrize("mutation", [pytest.param(m, marks=pytest.mark.slow) if m in SLOW_MUTATIONS else m for m in ["wander_left_to_right", "prescribed_radius_constant",
                                       "no_attraction", "cordon_buds_left_dormant",
-                                      "no_leaf_pulling", "berry_scatter_left_to_right"])
+                                      "no_leaf_pulling", "berry_scatter_left_to_right"]])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
     from heliades.parity.suites.plantarch import cases_grapevine as CW

@@ -9,7 +9,41 @@ from heliades.parity.ops import load_plugins  # noqa: E402
 load_plugins()
 
 
-@pytest.mark.parametrize("name", sorted(CASES))
+# Cases that take >= 5 s (all seeds) on the reference machine (RTX 5060 Ti box): large or old plants,
+# long growth sequences, the tomato acceptance grid, full-blade builds, OBJ asset sweeps, plus the
+# `*_state` / `*_labels` cases that reuse a cached build of a slow case (they would pay for it).
+# Skipped unless --runslow.
+SLOW_CASES = {
+    "core.materials.obj_interplay", "fileio.obj.assets", "fileio.obj.assets_topology", "plantarch.bean.age0_full",
+    "plantarch.bean.age0_full_attrs", "plantarch.bean.flowering", "plantarch.bean.flowering_full",
+    "plantarch.bean.gallery", "plantarch.bean.gallery_full", "plantarch.bean.steps", "plantarch.bean.steps_full",
+    "plantarch.grape.age120", "plantarch.grape.age76", "plantarch.grape.age84", "plantarch.grape.load",
+    "plantarch.grape.steps", "plantarch.inflo.draws", "plantarch.inflo.placement",
+    "plantarch.inflo.placement_labels", "plantarch.inflo.prototypes_attrs", "plantarch.leafproto.edges",
+    "plantarch.leafproto.edges_attrs", "plantarch.leafproto.tomato", "plantarch.leafproto.tomato_attrs",
+    "plantarch.maize.age0_attrs", "plantarch.maize.age0_full", "plantarch.maize.flag_leaf",
+    "plantarch.maize.gallery", "plantarch.maize.gallery_vegetative", "plantarch.maize.last_vegetative",
+    "plantarch.maize.steps", "plantarch.soybean.age0_full", "plantarch.soybean.age0_full_attrs",
+    "plantarch.soybean.flowering", "plantarch.soybean.flowering_full", "plantarch.soybean.gallery",
+    "plantarch.soybean.gallery_full", "plantarch.soybean.steps", "plantarch.soybean.steps_full",
+    "plantarch.strawberry.fruiting", "plantarch.strawberry.gallery", "plantarch.strawberry.gallery_vegetative",
+    "plantarch.strawberry.last_vegetative", "plantarch.strawberry.steps", "plantarch.tomato.age0_full",
+    "plantarch.tomato.age0_full_attrs", "plantarch.tomato.age50", "plantarch.tomato.age75_vegetative",
+    "plantarch.tomato.flowering", "plantarch.tomato.split", "plantarch.tomato.steps",
+    "plantarch.tomato.steps_replay", "plantarch.w4a.capsicum.reproductive",
+    "plantarch.w4a.capsicum.reproductive_full", "plantarch.w4a.capsicum.steps_late",
+    "plantarch.w4a.cherrytomato.age0_full", "plantarch.w4a.cherrytomato.age0_full_attrs",
+    "plantarch.w4a.cherrytomato.gallery", "plantarch.w4a.cherrytomato.gallery_full",
+    "plantarch.w4a.cherrytomato.reproductive", "plantarch.w4a.cherrytomato.reproductive_full",
+    "plantarch.w4a.cherrytomato.steps", "plantarch.w4a.cherrytomato.steps_late", "plantarchitecture.tomato",
+    "plantarchitecture.tomato.canopy", "plantarchitecture.tomato.canopy_state", "plantarchitecture.tomato.staggered",
+    "plantarchitecture.tomato.staggered_state", "plantarchitecture.tomato.state",
+    "plantarchitecture.tomato.two_plants", "plantarchitecture.tomato.two_plants_state",
+}
+
+
+@pytest.mark.parametrize("name", [pytest.param(n, marks=pytest.mark.slow) if n in SLOW_CASES else n
+                                  for n in sorted(CASES)])
 def test_parity_with_helios(name):
     for seed in range(CASES[name]["fuzz"]):
         r = run_case(name, seed)

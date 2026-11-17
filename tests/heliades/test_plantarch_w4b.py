@@ -10,7 +10,7 @@ import pytest
 from heliades.core.scene import Scene
 from heliades.plantarchitecture import PlantArchitecture
 from heliades.plantarchitecture import phytomer as PH
-from heliades.plantarchitecture import shoot_min as SM
+from heliades.plantarchitecture import shoot as SM
 from heliades.plantarchitecture.library import bean as BEAN
 from heliades.plantarchitecture.library import soybean as SOY
 from heliades.plantarchitecture.random_parameter import PlantArchitectureError

@@ -90,7 +90,7 @@ def required_phytomer_members():
 def _caches(pa):
     """``unique_{closed,open}_flower_prototype_objIDs`` / ``unique_fruit_prototype_objIDs``: maps keyed by
     ``(function pointer, organ build parameters)``. Created on first use (W3-C/W3-E may move them into
-    ``shoot_min.init_plant_state``; the attribute names are the C++ member names)."""
+    ``shoot.init_plant_state``; the attribute names are the C++ member names)."""
     for name in ("unique_closed_flower_prototype_objIDs", "unique_open_flower_prototype_objIDs",
                  "unique_fruit_prototype_objIDs"):
         if not hasattr(pa, name):

@@ -336,7 +336,7 @@ def _linspace3(a, b, num):
 
 @ports("PlantArchitecture::buildGrapevineVSP")
 def buildGrapevineVSP(pa, base_position):
-    from ..shoot_min import addShootFromNodePositions, removeShootLeaves, setPlantAttractionPoints
+    from ..shoot import addShootFromNodePositions, removeShootLeaves, setPlantAttractionPoints
     if not pa.shoot_types:
         initializeGrapevineVSPShoots(pa)
     ctx = pa.context_ptr

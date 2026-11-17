@@ -521,7 +521,7 @@ class PlantArchitectureAPI:
     @ports("PlantArchitecture::writePlantStructureXML")
     def writePlantStructureXML(self, plantID, filename=None) -> str:
         """Writes the file if ``filename`` is given; always returns the XML text."""
-        from .plant import plant_structure_xml
+        from .xml_io import plant_structure_xml
         text = plant_structure_xml(self, int(plantID))
         if filename is not None:
             with open(filename, "w") as f:

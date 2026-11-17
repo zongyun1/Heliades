@@ -34,7 +34,7 @@ from ..migration_registry import ports
 from .params import (BUD_ACTIVE, BUD_DEAD, BUD_DORMANT, BUD_FLOWER_CLOSED, BUD_FLOWER_OPEN, BUD_FRUITING,
                      deg2rad, make_AxisRotation)
 from .random_parameter import PlantArchitectureError
-from .shoot_min import Shoot, childShootOutwardAxis, validateShootTypes
+from .shoot import Shoot, childShootOutwardAxis, validateShootTypes
 from .tube_utils import PI_F
 
 f32 = np.float32

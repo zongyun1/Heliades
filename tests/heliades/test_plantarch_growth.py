@@ -13,9 +13,9 @@ from heliades.core.scene import Scene
 from heliades.parity.tools.draw_count import calls_between
 from heliades.plantarchitecture import PlantArchitecture
 from heliades.plantarchitecture import growth as G
-from heliades.plantarchitecture import shoot_min as SM
+from heliades.plantarchitecture import shoot as SM
 from heliades.plantarchitecture.params import BUD_ACTIVE, BUD_DEAD
-from heliades.plantarchitecture.plant import cout, plant_structure_xml
+from heliades.plantarchitecture.xml_io import cout, plant_structure_xml
 
 f32 = np.float32
 

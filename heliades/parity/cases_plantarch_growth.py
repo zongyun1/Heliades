@@ -9,7 +9,7 @@ What is compared, per observation (``_observe``):
 * ``draws``: engine calls since seeding (the external probe, SPEC §3.5; it reads 3 ``randu`` on both
   backends, so later steps continue from the same, probed, stream);
 * ``xml``: every element of ``writePlantStructureXML`` in document order (tag code, then its numbers; the
-  Heliades text is a port of the writer, ``plantarchitecture/plant.py``);
+  Heliades text is a port of the writer, ``plantarchitecture/xml_io.py``);
 * ``shoot0``: the base shoot's stored internode nodes at full precision (independent of blade area);
 * ``petiole0``: the triangle vertices of the base shoot's petiole tubes (independent of blade area);
 * area-dependent checks, on only when the blade areas are real (``_area_exact``): all internode radii

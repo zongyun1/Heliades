@@ -11,7 +11,7 @@ import pytest
 
 from heliades.core.scene import Scene
 from heliades.plantarchitecture import PlantArchitecture, hooks
-from heliades.plantarchitecture.plant import plant_structure_xml
+from heliades.plantarchitecture.xml_io import plant_structure_xml
 
 f32 = np.float32
 
@@ -133,7 +133,7 @@ def test_mutations_are_caught(monkeypatch, mutation):
     from heliades.parity.ops import load_plugins
     from heliades.plantarchitecture import library as L
     from heliades.plantarchitecture import phytomer as PH
-    from heliades.plantarchitecture import plant as PL
+    from heliades.plantarchitecture import xml_io as PL
     from heliades.plantarchitecture.library import capsicum as CAP
     from heliades.plantarchitecture.library import cherrytomato as CT
     load_plugins()

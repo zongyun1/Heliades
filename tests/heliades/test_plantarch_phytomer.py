@@ -151,7 +151,7 @@ def test_mutations_are_caught(monkeypatch, mutation):
     from heliades.parity.ops import load_plugins
     load_plugins()
     from heliades.plantarchitecture import phytomer as PH
-    from heliades.plantarchitecture import shoot_min as SM
+    from heliades.plantarchitecture import shoot as SM
     if mutation == "drop_curvature_resample":
         # the unused petiole.curvature.resample() of PA:3340: every later draw shifts by one
         _patch_source(monkeypatch, PH, "Phytomer", "__init__", "                pp.petiole.curvature.resample()\n", "")

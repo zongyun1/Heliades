@@ -10,7 +10,7 @@ before or after construction is equivalent (SPEC §3.4) and every ``RandomParame
 
 W3-B adds the minimal plant-building entry points (``addPlantInstance``, ``addBaseStemShoot``,
 ``breakPlantDormancy``, ``setPlantPhenologicalThresholds``, ``buildPlantInstanceFromLibrary`` at age 0); they
-delegate to ``shoot_min``. Growth (``advanceTime``) is W3-C.
+delegate to ``shoot``. Growth (``advanceTime``) is W3-C.
 """
 from __future__ import annotations
 
@@ -60,8 +60,8 @@ class PlantArchitecture(PlantArchitectureAPI):
             "age", "rank", "plantID", "plant_name", "plant_height", "plant_type", "phenology_stage", "leafID",
             "peduncleID", "closedflowerID", "openflowerID", "fruitID", "carbohydrate_concentration",
             "leaf_texture_stage")}
-        from . import shoot_min
-        shoot_min.init_plant_state(self)
+        from . import shoot
+        shoot.init_plant_state(self)
         # the inflorescence prototype caches (H:6700-6704), keyed by (prototype function, organ build parameters);
         # inflorescence._caches would create them lazily, here they exist from the start like the C++ members
         self.unique_closed_flower_prototype_objIDs = {}
@@ -166,14 +166,14 @@ class PlantArchitecture(PlantArchitectureAPI):
 
     @ports("PlantArchitecture::addPlantInstance")
     def addPlantInstance(self, base_position, current_age):
-        from .shoot_min import addPlantInstance
+        from .shoot import addPlantInstance
         return addPlantInstance(self, _as_vec3(base_position), current_age)
 
     @ports("PlantArchitecture::addBaseStemShoot")
     def addBaseStemShoot(self, plantID, current_node_number, base_rotation, internode_radius, internode_length_max,
                          internode_length_scale_factor_fraction, leaf_scale_factor_fraction, radius_taper,
                          shoot_type_label):
-        from .shoot_min import addBaseStemShoot
+        from .shoot import addBaseStemShoot
         return addBaseStemShoot(self, plantID, current_node_number, base_rotation, internode_radius,
                                 internode_length_max, internode_length_scale_factor_fraction,
                                 leaf_scale_factor_fraction, radius_taper, shoot_type_label)
@@ -182,19 +182,19 @@ class PlantArchitecture(PlantArchitectureAPI):
     def appendShoot(self, plantID, parent_shoot_ID, current_node_number, base_rotation, internode_radius,
                     internode_length_max, internode_length_scale_factor_fraction, leaf_scale_factor_fraction,
                     radius_taper, shoot_type_label):
-        from .shoot_min import appendShoot
+        from .shoot import appendShoot
         return appendShoot(self, plantID, parent_shoot_ID, current_node_number, base_rotation, internode_radius,
                            internode_length_max, internode_length_scale_factor_fraction, leaf_scale_factor_fraction,
                            radius_taper, shoot_type_label)
 
     @ports("PlantArchitecture::breakPlantDormancy")
     def breakPlantDormancy(self, plantID):
-        from .shoot_min import breakPlantDormancy
+        from .shoot import breakPlantDormancy
         breakPlantDormancy(self, plantID)
 
     @ports("PlantArchitecture::setPlantPhenologicalThresholds")
     def setPlantPhenologicalThresholds(self, plantID, *args, **kw):
-        from .shoot_min import setPlantPhenologicalThresholds
+        from .shoot import setPlantPhenologicalThresholds
         setPlantPhenologicalThresholds(self, plantID, *args, **kw)
 
     @ports("PlantArchitecture::buildPlantInstanceFromLibrary")

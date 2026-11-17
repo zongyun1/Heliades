@@ -214,7 +214,7 @@ def plant_structure_dict(pa, plantID: int, organs: bool = True) -> dict:
     * per plant: ``organs`` = the plant-level getters (``internode``, ``petiole``, ``leaf``, ``peduncle``,
       ``flower``, ``fruit`` object IDs, in their C++ order).
     """
-    from .plant import plant_structure_xml
+    from .xml_io import plant_structure_xml
     d = xml_to_structure_dict(plant_structure_xml(pa, plantID))
     if not organs:
         return d

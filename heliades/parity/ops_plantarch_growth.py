@@ -68,7 +68,7 @@ def _(B):
 
 @op("pa_xml_text", "heliades")
 def _(B):
-    from ..plantarchitecture.plant import plant_structure_xml
+    from ..plantarchitecture.xml_io import plant_structure_xml
     return plant_structure_xml(B.pa, B.pid)
 
 

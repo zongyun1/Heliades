@@ -1,7 +1,7 @@
 """Build a toy plant from Heliades compound objects (tube stem + petioles, tile leaves), export USD,
 render a PNG, and confirm the same calls on Helios give an identical scene.
 
-  .venv/bin/python scripts/heliades_demo.py   ->  outputs/heliades/demo_plant.usda, demo_plant.png
+  .venv/bin/python scripts/demos/heliades_demo.py   ->  outputs/heliades/demo_plant.usda, demo_plant.png
 """
 import math
 import sys
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from heliades.parity.backends import ForgeBackend, HeliosBackend  # noqa: E402
 from heliades.parity.compare import compare_snapshots  # noqa: E402

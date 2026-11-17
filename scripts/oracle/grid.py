@@ -1,5 +1,5 @@
 import hashlib, sys, time, numpy as np
-sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__file__), "../../../.."))
+sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__file__), "../.."))
 from pyhelios import Context, PlantArchitecture
 from pyhelios.types import vec3
 

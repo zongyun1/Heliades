@@ -3,7 +3,7 @@
 Top row: Helios render meshes. Bottom row: the simulation asset (rod centrelines coloured
 by organ, coarse leaf sim meshes, fruit spheres).
 
-Run:  .venv/bin/python scripts/helios_gallery.py
+Run:  .venv/bin/python scripts/demos/helios_gallery.py
 """
 import json
 import sys
@@ -12,11 +12,11 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "legacy"))  # planttwin
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "legacy"))  # planttwin
 from planttwin.helios_import import build_helios_plant  # noqa: E402
 
-OUT = Path(__file__).resolve().parents[1] / "outputs" / "helios"
+OUT = Path(__file__).resolve().parents[2] / "outputs" / "helios"
 CROPS = [("tomato", 75), ("cherrytomato", 75), ("capsicum", 80), ("strawberry", 60),
          ("bean", 45), ("soybean", 50), ("grapevine_VSP", 120), ("maize", 50)]
 ORGAN_COLOR = {0: "#6b4f2a", 1: "#7a8f3a", 2: "#3f7f3f", 3: "#3f7f3f"}

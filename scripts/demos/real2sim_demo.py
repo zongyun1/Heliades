@@ -6,7 +6,7 @@
      (a) static photo only (equilibrium shape)    (b) static + poke video
 4. report recovery error, save plots + JSON to outputs/
 
-Run:  OMP_NUM_THREADS=1 python scripts/real2sim_demo.py [--quick]
+Run:  OMP_NUM_THREADS=1 python scripts/demos/real2sim_demo.py [--quick]
 """
 import argparse
 import json
@@ -16,15 +16,15 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "legacy"))  # planttwin
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "legacy"))  # planttwin
 from planttwin.camera import Camera  # noqa: E402
 from planttwin.procedural import make_plant  # noqa: E402
 from planttwin.real2sim import (FIT_PARAMS, PokeExperiment, fit, make_synthetic_observation,  # noqa: E402
                                 phys_to_theta, rollout)
 from planttwin.sim import PlantModel  # noqa: E402
 
-OUT = Path(__file__).resolve().parents[1] / "outputs"
+OUT = Path(__file__).resolve().parents[2] / "outputs"
 
 
 def main():

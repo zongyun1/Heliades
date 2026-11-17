@@ -6,7 +6,7 @@
                                        TreeSim h = 1/60  vs  planttwin XPBD 128 substeps/frame
   outputs/sim/summary.json             sag / settle numbers for the notes
 
-Run:  .venv/bin/python scripts/sim_tree_demo.py [tree] [xpbd]
+Run:  .venv/bin/python scripts/demos/sim_tree_demo.py [tree] [xpbd]
 """
 import json
 import sys
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "legacy"))  # planttwin
 from planttwin import render as R  # noqa: E402

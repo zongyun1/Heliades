@@ -1,19 +1,19 @@
 """Render the plant asset and a poke: rest shape, gravity equilibrium, pressed, ringing.
 
-Run:  python scripts/render_poke.py   ->  outputs/poke_frames.png
+Run:  python scripts/demos/render_poke.py   ->  outputs/poke_frames.png
 """
 import sys
 from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "legacy"))  # planttwin
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "legacy"))  # planttwin
 from planttwin.procedural import make_plant  # noqa: E402
 from planttwin.real2sim import PokeExperiment  # noqa: E402
 from planttwin.sim import PlantModel  # noqa: E402
 
-OUT = Path(__file__).resolve().parents[1] / "outputs"
+OUT = Path(__file__).resolve().parents[2] / "outputs"
 
 
 def draw(ax, model, x, sphere=None, title=""):

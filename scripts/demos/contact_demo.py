@@ -10,7 +10,7 @@
   outputs/sim/contact_summary.json     numbers for migration/notes/B3.md (comparisons,
       performance at B = 1 / 16 / 64, refinement convergence of the critical modulus)
 
-Run:  .venv/bin/python scripts/contact_demo.py [--no-video]
+Run:  .venv/bin/python scripts/demos/contact_demo.py [--no-video]
 """
 import json
 import sys
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "legacy"))  # planttwin
 from planttwin import render as R  # noqa: E402

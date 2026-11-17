@@ -4,7 +4,7 @@
   poke     procedural plant: finger presses a leaf, releases, plant rings down (stable case)
   settle   Helios tomato dropped into the current XPBD sim (shows the collapse problem)
 
-Run:  .venv/bin/python scripts/make_videos.py [growth poke settle]
+Run:  .venv/bin/python scripts/videos/make_videos.py [growth poke settle]
 """
 import sys
 import time
@@ -12,11 +12,11 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "legacy"))  # planttwin
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "legacy"))  # planttwin
 from planttwin import render as R  # noqa: E402
 
-OUT = Path(__file__).resolve().parents[1] / "outputs" / "videos"
+OUT = Path(__file__).resolve().parents[2] / "outputs" / "videos"
 
 
 def _fig():

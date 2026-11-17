@@ -1,5 +1,5 @@
 import sys, re, math
-sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__file__), "../../../.."))
+sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__file__), "../.."))
 import numpy as np
 from heliades.core.random import ContextRandom, MinstdRand0, uniform_integer
 from pyhelios import Context, PlantArchitecture

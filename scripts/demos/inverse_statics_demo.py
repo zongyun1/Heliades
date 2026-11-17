@@ -8,7 +8,7 @@
       grey: the target (Helios) stem for reference
   outputs/sim/inverse_summary.json      numbers for migration/notes/B2.md
 
-Run:  .venv/bin/python scripts/inverse_statics_demo.py
+Run:  .venv/bin/python scripts/demos/inverse_statics_demo.py
 """
 import json
 import sys
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "legacy"))  # planttwin
 from planttwin import render as R  # noqa: E402

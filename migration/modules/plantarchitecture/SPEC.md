@@ -236,7 +236,7 @@ Engine calls measured on the oracle (seed 5): build age 0/2/4/10 = 36/66/101/208
 
 ### 3.4 Answer: does `seedRandomGenerator` change the tomato, and does timing matter?
 
-Oracle `oracle/rng_exp.py`, age 20, vertex SHA1 over `getAllUUIDs`:
+Oracle `scripts/oracle/rng_exp.py`, age 20, vertex SHA1 over `getAllUUIDs`:
 
 | seed set | seed 0 | seed 1 | seed 2 | repeat same seed |
 |---|---|---|---|---|
@@ -255,7 +255,7 @@ Oracle `oracle/rng_exp.py`, age 20, vertex SHA1 over `getAllUUIDs`:
 1. Seed s, run a stage, then call `ctx.randu()`.
 2. Find n such that `UniformReal(float)` applied to a copy of `MinstdRand0(s)` advanced n calls equals that value.
 
-Script: `oracle/draw_count.py` (worth committing as `heliades/parity/tools/draw_count.py` in W2-C). It gives an exact engine-call count after any public-API stage, for example after each `advanceTime(2)`. It is the primary tool for localising an RNG divergence.
+Script: `heliades/parity/tools/draw_count.py` (committed in W2-C; it replaced the first oracle-only prototype). It gives an exact engine-call count after any public-API stage, for example after each `advanceTime(2)`. It is the primary tool for localising an RNG divergence.
 
 ---
 
@@ -500,7 +500,7 @@ Object and UUID counters only increase (unverified for deletions; W1-B should co
 - `pmin` = minimum `phyllochron_min` over the existing shoots and the snapshot types (2 for tomato).
 - If `T ≤ pmin`: `Nsteps=int(T)`, `dt=1`. Otherwise `Nsteps=floor(T/pmin)`, `dt=pmin`.
 - A float remainder > 0 adds a last step with `dt=remainder`.
-- So `advanceTime(20)` = `advanceTime(10)`×2, but ≠ `advanceTime(5)`×4. Oracle-verified (`oracle/grid.py split`).
+- So `advanceTime(20)` = `advanceTime(10)`×2, but ≠ `advanceTime(5)`×4. Oracle-verified (`scripts/oracle/grid.py split`).
 
 **Per sub-step, per plant:**
 1. **Max-age guard** (365) (PA:11853-11866).

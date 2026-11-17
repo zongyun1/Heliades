@@ -1,7 +1,7 @@
 """B4 throughput benchmark: Helios tomato (476 bodies, 497 leaflets, 27 levels) on the GPU
 (heliades.sim.gpu.TreeSimGPU) versus the CPU numpy solver (heliades.sim.TreeSim).
 
-    python scripts/gpu_benchmark.py [--quick] [--json out.json]
+    python scripts/bench/gpu_benchmark.py [--quick] [--json out.json]
 
 Reports env-steps/s and ms/step at B = 1, 64, 256, 1024, 4096 (and larger while memory
 allows), float32 and float64, with and without CUDA graphs at B = 1, device memory per env,
@@ -12,13 +12,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import warp as wp
 
-from heliades.sim import TreeSim
-from heliades.sim.gpu import TreeSimGPU, inverse_statics_gpu
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "legacy"))  # planttwin (build_helios_plant)
+
+from heliades.sim import TreeSim  # noqa: E402
+from heliades.sim.gpu import TreeSimGPU, inverse_statics_gpu  # noqa: E402
 
 
 def bench_cpu(asset, B, n):

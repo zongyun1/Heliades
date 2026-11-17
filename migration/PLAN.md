@@ -11,11 +11,13 @@ evaluated against TomatoWUR. Scope decisions are in `BUILD_VS_BUY.md`; porting r
   reviews each diff, reruns `pytest -q tests` and `python -m heliades.parity` on main after
   merging, and pushes.
 - **File ownership is strict.** An agent edits only the files its package lists. New backend
-  operations go in `heliades/parity/ops_<area>.py` (`@op` registry). New cases go in
-  `heliades/parity/cases_<area>.py`. Both are auto-loaded, so no shared adapter is edited.
+  operations go in `heliades/parity/suites/<group>/ops_<area>.py` (`@op` registry). New cases go in
+  `heliades/parity/suites/<group>/cases_<area>.py`, with `<group>` = `core`, `plantarch`, or a new
+  subpackage per Helios plugin, and `<area>` named by content (e.g. `grapevine`, not the package id).
+  Everything under `suites/` is auto-loaded, so no shared adapter is edited. Tests go in `tests/<group>/`.
 - **Shared-file changes belong to a single package per wave.** That package is named below.
-- **Helios discrepancies and notes go in `migration/notes/<package>.md`.** The coordinator folds
-  them into `HELIOS_ISSUES.md`.
+- **Notes go in `migration/notes/<package>.md`; Helios discrepancies go straight into
+  `migration/HELIOS_ISSUES.md`.** Notes of finished packages are in `migration/notes/archive/`.
 - **Acceptance for every package:**
   - its new parity cases pass at the stated tier with fuzzing over several seeds;
   - the full suite stays green;
@@ -55,7 +57,7 @@ between days 75 and 100 (W1-D). Packages W3-A…E follow SPEC.md §8.
 
 - Remaining species from the 8-crop gallery: cherry tomato, capsicum, strawberry, bean, soybean,
   grapevine_VSP and maize.
-- `planttwin` conversion reads Heliades directly, with no PyHelios at runtime.
+- `planttwin` (`legacy/planttwin`) conversion reads Heliades directly, with no PyHelios at runtime.
 - USD export and simulation.
 - The first TomatoWUR structural evaluation.
 

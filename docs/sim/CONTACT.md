@@ -5,8 +5,8 @@ detection, Delassus operator, PGS, step hook), `contact_wp.py` (Warp PGS kernel)
 (segment refinement), `inverse_contact.py` (contact-aware inverse statics), `scenarios.py` (shared
 test/demo set-ups); additive edits to `tree.py` (floating bases, stored factorisation, bias-only
 response sweep, `BodyForce`), `topology.py` (ancestor table, floating bases) and `hessian.py`
-(`BodyForce` dead loads). Tests: `tests/heliades/test_sim_contact.py`. Results: `migration/notes/B3.md`.
-Demo: `scripts/contact_demo.py` → `outputs/sim/tomato_ground_rest.mp4`, `outputs/sim/tomato_finger_push.mp4`,
+(`BodyForce` dead loads). Tests: `tests/sim/test_sim_contact.py`. Results: `migration/notes/archive/B3.md`.
+Demo: `scripts/demos/contact_demo.py` → `outputs/sim/tomato_ground_rest.mp4`, `outputs/sim/tomato_finger_push.mp4`,
 `outputs/sim/contact_summary.json`.
 
 ## 1. Problem
@@ -244,7 +244,7 @@ Convergence of the inverse critical modulus (B2's `critical_modulus`, exact Stur
 Finding: B1's joint compliance at a junction counts the parent's last half segment once per child
 (series sum `l_p/2/EI_p + l_c/2/EI_c`). That is exact on chains and O(l) wrong at branch points,
 where the parent half segment is physically shared. Refinement removes it at O(1/m). Tomato
-numbers: see `migration/notes/B3.md`. E_cr rises from 7.32e8 (unrefined) to 8.57e8 (×8), with an
+numbers: see `migration/notes/archive/B3.md`. E_cr rises from 7.32e8 (unrefined) to 8.57e8 (×8), with an
 extrapolated 8.7e8.
 
 ## 9. Data layout notes for the Warp port (B4)

@@ -569,7 +569,7 @@ Each build takes ≤ 0.4 s on the oracle.
 
 ## 8. Proposed Wave 2/3 work breakdown
 
-All under `heliades/plantarchitecture/`. C++ sizes are the lines on the tomato path only (not whole files). Parity ops go in `heliades/parity/ops_plantarch_*.py` and cases in `cases_plantarch_*.py`.
+All under `heliades/plantarchitecture/`. C++ sizes are the lines on the tomato path only (not whole files). Parity ops go in `heliades/parity/suites/plantarch/ops_*.py` and cases in `suites/plantarch/cases_*.py` (originally `heliades/parity/ops_plantarch_*.py` / `cases_plantarch_*.py`).
 
 **Common intermediate-state oracle.** Write `plant_structure_dict()` in Heliades mirroring `PlantArchitecture::writePlantStructureXML` (InputOutput.cpp:519-1066). On the Helios side, parse the XML that PyHelios writes (`writePlantStructureXML`). Its tags give:
 - per phytomer: sampled `internode_pitch`, `internode_phyllotactic_angle`, `petiole_pitch`, `petiole_curvature`, `leaf_pitch`, `leaf_yaw`, `leaf_roll`, `leaf_scale`, `internode_radii`, `internode_vertices`, bud states, `phyllochron_counter`;

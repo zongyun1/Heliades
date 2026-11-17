@@ -1,9 +1,9 @@
 # heliades.sim.gpu (B4): the tree solver and inverse statics on the GPU (NVIDIA Warp)
 
 Status: working, tested. Code: `heliades/sim/gpu/` (`sim.py` TreeSimGPU, `kernels.py`, `layout.py`,
-`inverse.py`, `contact.py`). Tests: `tests/heliades/test_sim_gpu.py` (19 tests, ~12 s with a warm
-kernel cache, skipped without CUDA). Benchmark: `scripts/gpu_benchmark.py`. Results:
-`migration/notes/B4.md`. Hardware used: RTX 5060 Ti 16 GB (sm_120), Warp 1.19.
+`inverse.py`, `contact.py`). Tests: `tests/sim/test_sim_gpu.py` (19 tests, ~12 s with a warm
+kernel cache, skipped without CUDA). Benchmark: `scripts/bench/gpu_benchmark.py`. Results:
+`migration/notes/archive/B4.md`. Hardware used: RTX 5060 Ti 16 GB (sm_120), Warp 1.19.
 
 This is a 1:1 port of B1 (`TreeSim`, docs/sim/DESIGN.md) and B2 (`inverse_statics` + Sturm count,
 docs/sim/INVERSE.md). The model, the linearly-implicit step, and the fixed point are unchanged.

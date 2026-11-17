@@ -1,11 +1,11 @@
 # heliades.sim B1: a forward tree direct solver
 
-Status: prototype (CPU, numpy, batched). Code: `heliades/sim/`. Tests: `tests/heliades/test_sim_tree.py`.
-Results: `migration/notes/B1.md`.
+Status: prototype (CPU, numpy, batched). Code: `heliades/sim/`. Tests: `tests/sim/test_sim_tree.py`.
+Results: `migration/notes/archive/B1.md`.
 
 ## 1. Problem
 
-`planttwin.sim` (small-step XPBD, graph-coloured Gauss–Seidel) cannot hold a full-size crop.
+`planttwin.sim` (`legacy/planttwin/sim.py`; small-step XPBD, graph-coloured Gauss–Seidel) cannot hold a full-size crop.
 Plant rods are long, thin, nearly inextensible and stiff, they form deep trees, and they carry
 heavy distal loads (leaves, 11 g fruit on near-massless pedicels). Gauss–Seidel propagates
 information one constraint per iteration. Its error contracts slowly when stiffness ratios

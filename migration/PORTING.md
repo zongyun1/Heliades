@@ -24,7 +24,7 @@ because it is a derivative work of Helios (Copyright (C) 2016-2026 Brian Bailey)
    - the error conditions.
 2. **Backend API.** Add the operations a parity case needs to *both* `HeliosBackend` and
    `ForgeBackend` (`heliades/parity/backends.py`).
-3. **Cases.** Add parity cases in `heliades/parity/cases.py` (or `cases_<module>.py`):
+3. **Cases.** Add parity cases in `heliades/parity/suites/<group>/cases_<area>.py` (backend ops in `ops_<area>.py` beside it):
    - fuzz cases with many seeds;
    - edge cases taken from Helios's own `tests/`.
    Run them before porting. They must fail on Heliades and must run on Helios.
@@ -33,7 +33,7 @@ because it is a derivative work of Helios (Copyright (C) 2016-2026 Brian Bailey)
    - Add a comment explaining any deliberate deviation (a bug fix, or vectorisation that changes
      rounding).
 5. **Parity.** Run `python -m heliades.parity <module>` until it passes. Then run
-   `pytest tests/heliades` and `python migration/inventory.py`.
+   `pytest tests` and `python migration/inventory.py`.
 6. **Bugs found in Helios.** If the oracle looks wrong, do not copy the bug silently. Record it in
    `migration/HELIOS_ISSUES.md` with a minimal reproduction. Then either match Helios behind a flag,
    or fix it and mark that case `expected_divergence`.

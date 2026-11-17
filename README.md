@@ -4,11 +4,16 @@ A simulation-first, GPU-native successor to [Helios](https://github.com/PlantSim
 generating simulation-ready crop assets. It is built on Python, NVIDIA Warp and OpenUSD.
 In Greek myth the Heliades, daughters of Helios, turned into poplar trees.
 
-The repository has two parts:
+The repository has these parts:
 - **`heliades/`**: Helios's functionality moved to the new platform, verified by differential tests
-  against a pinned Helios build. See [Heliades](#heliades-helios-on-a-new-platform-heliades-lgpl-21-or-later) below.
-- **`planttwin/`**: the deformable plant simulator (Cosserat rods + XPBD leaves), the Helios → sim-asset
-  converter, and the Real2Sim experiments.
+  against a pinned Helios build (`core/`, `plantarchitecture/`, `io/`, `parity/`). See
+  [Heliades](#heliades-helios-on-a-new-platform-heliades-lgpl-21-or-later) below. It also holds the plant asset
+  data model (`heliades/asset/`) and the plant-specific deformable simulator (`heliades/sim/`, docs in `docs/sim/`).
+- **`legacy/planttwin/`**: the original prototype: XPBD simulator (Cosserat rods + XPBD leaves), the PyHelios →
+  sim-asset converter, and the Real2Sim experiments. Kept importable as `planttwin` (it is on the pytest path and
+  installed by `pip install -e .`); `heliades/` does not depend on it.
+- **`scripts/`**: `demos/`, `videos/`, `bench/` (GPU benchmark), `oracle/` (PyHelios probes used while writing
+  the specs). **`tests/`**: `core/`, `plantarch/`, `sim/`, `legacy/`, and `test_parity.py`.
 
 License: LGPL-2.1-or-later (derivative of Helios; see `NOTICE.md`).
 
@@ -20,16 +25,16 @@ License: LGPL-2.1-or-later (derivative of Helios; see `NOTICE.md`).
 phone multi-view photos ──► 3D recon (COLMAP + 3DGS / GaussianPlant)  ─┐   [TODO: front end]
                                                                        ▼
                          Structured PlantAsset  (stem graph + radii + leaf meshes + attachments)
-                                                                       │   planttwin/asset.py
+                                                                       │   heliades/asset/   
                                                                        ▼
                          Deformable sim: Cosserat-rod stem + XPBD leaf shells + contact
-                                                                       │   planttwin/sim.py
+                                                                       │   planttwin/sim.py → heliades/sim/
 phone poke video ──► 2D keypoint tracks ──►  Real2Sim: fit E_stem, leaf stiffness, damping
                      (CoTracker / TAPIR)                                   planttwin/real2sim.py
 ```
 
 This repo currently builds the **back half** of that pipeline end to end on a procedural
-plant (`planttwin/procedural.py` stands in for reconstruction), so the most important
+plant (`legacy/planttwin/procedural.py` stands in for reconstruction), so the most important
 research risk — *can physical parameters be identified from a phone video at all?* — is
 tested before any reconstruction work is done.
 
@@ -37,27 +42,27 @@ tested before any reconstruction work is done.
 
 | file | what |
 |---|---|
-| `planttwin/asset.py` | `PlantAsset` = `StemGraph` (nodes, parent→child edges, radius, fixed) + `Leaf` meshes (welded to a stem node, tracked keypoints) + `PhysicsParams`. JSON round-trip. The contract between recon and sim. |
-| `planttwin/helios_import.py` | Helios (PyHelios) plant → PlantAsset converter, ~30 crop species. |
-| `planttwin/procedural.py` | Synthetic potted plant: stem, phyllotactic petioles, elliptic leaf meshes. |
-| `planttwin/sim.py` | Small-step XPBD, graph-coloured Gauss–Seidel, **batched over parameter sets**. Stem = Cosserat rod (per-segment quaternions; bend/twist compliance = l/(E·I), l/(G·J) from the per-node radius). Leaves = distance + bending on the mesh; leaf base rigidly attached to the petiole-tip frame (two-way). Kinematic sphere colliders + ground. |
-| `planttwin/camera.py` | Pinhole `Camera.look_at`, `project` (the Π in the loss). |
-| `planttwin/real2sim.py` | `PokeExperiment` (finger presses a leaf, lifts off), synthetic observations, batched multi-process loss, differential-evolution fit in log-parameter space. |
-| `scripts/real2sim_demo.py` | Identifiability experiment: static-photo-only vs static+poke-video. |
-| `scripts/helios_gallery.py` | Convert 8 crops, save assets + gallery figure. |
-| `scripts/render_poke.py` | Snapshot figure of rest / equilibrium / pressed / released. |
-| `tests/` | quaternion helpers, JSON round-trip, equilibrium is static, stiffness monotonicity, batch == single, contact, camera. |
+| `heliades/asset/model.py` | `PlantAsset` = `StemGraph` (nodes, parent→child edges, radius, fixed) + `Leaf` meshes (welded to a stem node, tracked keypoints) + `PhysicsParams`. JSON round-trip. The contract between recon and sim. |
+| `legacy/planttwin/helios_import.py` | Helios (PyHelios) plant → PlantAsset converter, ~30 crop species. |
+| `legacy/planttwin/procedural.py` | Synthetic potted plant: stem, phyllotactic petioles, elliptic leaf meshes. |
+| `legacy/planttwin/sim.py` | Small-step XPBD, graph-coloured Gauss–Seidel, **batched over parameter sets**. Stem = Cosserat rod (per-segment quaternions; bend/twist compliance = l/(E·I), l/(G·J) from the per-node radius). Leaves = distance + bending on the mesh; leaf base rigidly attached to the petiole-tip frame (two-way). Kinematic sphere colliders + ground. |
+| `legacy/planttwin/camera.py` | Pinhole `Camera.look_at`, `project` (the Π in the loss). |
+| `legacy/planttwin/real2sim.py` | `PokeExperiment` (finger presses a leaf, lifts off), synthetic observations, batched multi-process loss, differential-evolution fit in log-parameter space. |
+| `scripts/demos/real2sim_demo.py` | Identifiability experiment: static-photo-only vs static+poke-video. |
+| `scripts/demos/helios_gallery.py` | Convert 8 crops, save assets + gallery figure. |
+| `scripts/demos/render_poke.py` | Snapshot figure of rest / equilibrium / pressed / released. |
+| `tests/legacy/` | quaternion helpers, JSON round-trip, equilibrium is static, stiffness monotonicity, batch == single, contact, camera. |
 
 ```bash
 pip install -e .[dev]
-pytest -q                                            # ~1 min
-OMP_NUM_THREADS=1 python scripts/render_poke.py      # outputs/poke_frames.png
-OMP_NUM_THREADS=1 python scripts/real2sim_demo.py    # ~20 min on 16 cores; --quick for a smoke test
+pytest -q tests/legacy                                     # planttwin prototype tests
+OMP_NUM_THREADS=1 python scripts/demos/render_poke.py      # outputs/poke_frames.png
+OMP_NUM_THREADS=1 python scripts/demos/real2sim_demo.py    # ~20 min on 16 cores; --quick for a smoke test
 ```
 
 ## Results so far (synthetic)
 
-`scripts/real2sim_demo.py`, seed 0, 1 px track noise, 10 tracked points (leaf tips + mids),
+`scripts/demos/real2sim_demo.py`, seed 0, 1 px track noise, 10 tracked points (leaf tips + mids),
 differential evolution with 10 generations × 24 members (352 rollouts):
 
 | param | true | static photo only | static + 2 s poke video |
@@ -78,7 +83,7 @@ How to read this:
   noise floor of ~2, and the damping estimate was still moving between generations. It needs
   more generations or a local polish (e.g. Nelder–Mead from the DE optimum).
 
-## Phase 1: crop assets from Helios (`planttwin/helios_import.py`)
+## Phase 1: crop assets from Helios (`legacy/planttwin/helios_import.py`)
 
 Current focus: asset generation + simulator (Real2Sim parked). [Helios](https://github.com/PlantSimulationLab/Helios)
 (LGPL-2.1; Python bindings `pip install pyhelios3d`, MIT) grows ~30 species procedurally.
@@ -88,7 +93,7 @@ rachis nodes (snapped to ≥5 mm segments); leaflet render meshes (~144 tris) �
 sim meshes by clustering in texture-UV space (robust to arching maize leaves), base fanned
 to the first row; fruit → pedicel node carrying the lumped mass.
 
-`scripts/helios_gallery.py` → `outputs/helios/gallery.png`, `summary.json`:
+`scripts/demos/helios_gallery.py` → `outputs/helios/gallery.png`, `summary.json`:
 
 | crop | age | height | rod nodes | leaflets kept | fruit | sim particles | convert |
 |---|---|---|---|---|---|---|---|
@@ -123,13 +128,13 @@ masses, armature for stability) and a static cantilever petiole bend
 masses, not deformable. Helios's `seedRandomGenerator` didn't change the tomato build
 between seeds 0 and 1, so variation needs parameter sampling, not just seeds.
 
-### Videos (`scripts/make_videos.py` → `outputs/videos/`)
+### Videos (`scripts/videos/make_videos.py` → `outputs/videos/`)
 
 - `growth_tomato.mp4`: Helios tomato growing from day 10 to day 80 (render meshes, orbiting camera).
 - `poke_procedural.mp4`: procedural plant pressed by a finger, released, ringing down (stable case).
 - `settle_helios_tomato.mp4`: Helios tomato in the current XPBD sim, collapsing (the solver problem above).
 
-`.venv/bin/python scripts/make_videos.py [growth poke settle]`, ~40 s each (matplotlib frames → ffmpeg).
+`.venv/bin/python scripts/videos/make_videos.py [growth poke settle]`, ~40 s each (matplotlib frames → ffmpeg).
 
 ## Heliades: Helios on a new platform (`heliades/`, LGPL-2.1-or-later)
 
@@ -148,15 +153,15 @@ against a pinned Helios build**:
 | Bit-exact Helios RNG (minstd_rand0 + portable distributions) | `heliades/core/random.py` |
 | Scene/primitive geometry, float32 op-for-op with `Context_primitive.cpp` | `heliades/core/scene.py` |
 | Compound objects: tube (parallel-transport frames), tile, polymesh; 0-ulp vs Helios | `heliades/core/scene.py`, `heliades/core/vec.py` |
-| Demo: toy plant from tubes + tiles, USD + PNG, parity-checked | `scripts/heliades_demo.py` → `outputs/heliades/` |
+| Demo: toy plant from tubes + tiles, USD + PNG, parity-checked | `scripts/demos/heliades_demo.py` → `outputs/heliades/` |
 | GPU BVH + batched ray casting (Warp) | `heliades/core/device.py` |
 | USD export (UUIDs and primitive data as primvars) | `heliades/io/usd.py` |
-| Parity harness: one case runs on both backends; exact / ulp / dist tiers | `heliades/parity/` |
+| Parity harness: one case runs on both backends; exact / ulp / dist tiers | `heliades/parity/` (suites in `parity/suites/{core,plantarch}/`) |
 
 ```bash
 python -m heliades.parity            # all parity cases vs Helios
 python migration/inventory.py          # coverage report
-pytest -q tests/heliades
+pytest -q tests                        # fast suite; add --runslow for the large-plant / heavy parity tests
 ```
 
 ## Things learned building this (that matter for the research plan)

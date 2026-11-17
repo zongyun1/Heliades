@@ -2,8 +2,8 @@
 
 Status: prototype (CPU, numpy, batched). Code: `heliades/sim/inverse.py` (inverse, critical modulus,
 fallback) and `heliades/sim/hessian.py` (subtree loads, gradient, tangent stiffness, O(n) tree
-factorisation, Sturm counts). Tests: `tests/heliades/test_sim_inverse.py`. Results:
-`migration/notes/B2.md`. Demo: `scripts/inverse_statics_demo.py` → `outputs/sim/tomato_inverse_hold.mp4`.
+factorisation, Sturm counts). Tests: `tests/sim/test_sim_inverse.py`. Results:
+`migration/notes/archive/B2.md`. Demo: `scripts/demos/inverse_statics_demo.py` → `outputs/sim/tomato_inverse_hold.mp4`.
 
 ## 1. Problem
 
@@ -204,7 +204,7 @@ rest curvature and twist, exact with respect to the discrete energy. It differs 
    the inverse's cost), so it can sit inside a Real2Sim fitting loop as a constraint
    (E ≥ E_cr(target)).
 
-## 6. Results in brief (details: migration/notes/B2.md)
+## 6. Results in brief (details: migration/notes/archive/B2.md)
 
 * Round trip rest → static → inverse: rest recovered to ≤ 4e-15 (cantilevers, 4 cases) and
   ≤ 1.5e-12 (tomato at 5e8 and 1e9).

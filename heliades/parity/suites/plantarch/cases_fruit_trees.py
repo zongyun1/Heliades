@@ -47,10 +47,10 @@ SHOOT_TYPES = {
 }
 #: (age, fuzz) per model; module-level so tests can shorten them
 AGES = {
-    "apple": ((0, 8), (170, 8), (200, 8), (300, 8), (366, 8), (548, 8), (732, 2)),
-    "apple_fruitingwall": ((0, 8), (170, 8), (250, 8), (366, 8), (548, 4), (732, 2)),
-    "olive": ((0, 8), (170, 8), (250, 8), (366, 8), (548, 8), (800, 2)),
-    "easternredbud": ((0, 8), (30, 8), (120, 8), (250, 8), (366, 8), (548, 8), (732, 2)),
+    "apple": ((0, 8), (170, 8), (200, 8), (300, 8), (366, 8), (548, 8), (732, 2), (913, 1), (1460, 1)),
+    "apple_fruitingwall": ((0, 8), (170, 8), (250, 8), (366, 8), (548, 4), (732, 2), (913, 1), (1460, 1), (3650, 1)),
+    "olive": ((0, 8), (170, 8), (250, 8), (366, 8), (548, 8), (800, 2), (1100, 1)),
+    "easternredbud": ((0, 8), (30, 8), (120, 8), (250, 8), (366, 8), (548, 8), (732, 2), (1100, 1), (1460, 1)),
 }
 DATA_AGES = {"apple": ((250, 2),), "apple_fruitingwall": ((250, 2),), "olive": ((250, 2),),
              "easternredbud": ((250, 2),)}
@@ -72,7 +72,7 @@ REJECTED = {
     "easternredbud": ({"trunk_height": 0.8},),
 }
 #: cheaper variants that reach the later training events early: a 2 m wall heads its leader in the first winter
-VARIANTS = {"apple_fruitingwall": (("short_wall", {"tree_height": 2.0}, ((400, 4), (800, 2))),)}
+VARIANTS = {"apple_fruitingwall": (("short_wall", {"tree_height": 2.0}, ((400, 4), (800, 2), (1100, 1))),)}
 STEPS = {"apple": (360.0, 2.0, 6), "apple_fruitingwall": (360.0, 2.0, 6), "easternredbud": (360.0, 2.0, 6)}
 
 

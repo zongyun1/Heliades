@@ -121,12 +121,12 @@ def _fails(name, seeds=range(1)):
     return any(not run_case(name, s).ok for s in seeds)
 
 
-SLOW_MUTATIONS = {"apple_light_threshold", "wall_competitor_zone", "olive_leaf_flip", "redbud_child_nodes"}
+SLOW_MUTATIONS = {"apple_light_threshold", "wall_heading_window", "olive_leaf_flip", "redbud_child_nodes"}
 
 
 @pytest.mark.parametrize("mutation", [pytest.param(m, marks=pytest.mark.slow) if m in SLOW_MUTATIONS else m
                                       for m in ("redbud_trunk_float_randu", "wall_feather_round", "apple_light_threshold",
-                                                "wall_competitor_zone", "olive_leaf_flip", "redbud_child_nodes")])
+                                                "wall_heading_window", "olive_leaf_flip", "redbud_child_nodes")])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
     from heliades.parity.ops import load_plugins
@@ -152,13 +152,13 @@ def test_mutations_are_caught(monkeypatch, mutation):
         monkeypatch.setattr(AP, "_f32_round", lambda x: int(float(f32(x))))
         assert _fails("plantarch.apple_fruitingwall.age0", range(2))
     elif mutation == "apple_light_threshold":
-        # flower buds are thinned below 0.45 of full light
-        monkeypatch.setattr(AP, "apple_flowering_light_exposure_min", f32(0.6))
-        assert _fails("plantarch.apple.age366")
-    elif mutation == "wall_competitor_zone":
-        # shoots within 0.2 m of the leader tip are pinched in winter
-        monkeypatch.setattr(AP, "apple_fruitingwall_competitor_zone", f32(0.0))
-        assert _fails("plantarch.apple_fruitingwall.age548")
+        # a flower cluster keeps all its flowers above 0.8 of full light (the young tree is that well lit)
+        monkeypatch.setattr(AP, "apple_flowering_light_exposure_full", f32(2.0))
+        assert _fails("plantarch.apple.age548")   # bud states show in the next spring
+    elif mutation == "wall_heading_window":
+        # the leader is headed back to the highest branch within 0.5 m below the wall height
+        monkeypatch.setattr(AP, "apple_fruitingwall_heading_window", f32(0.2))
+        assert _fails("plantarch.apple_fruitingwall.short_wall_age400")
     elif mutation == "olive_leaf_flip":
         # the lower leaf tile is flipped about x
         from heliades.core.scene import Scene as S
@@ -168,4 +168,4 @@ def test_mutations_are_caught(monkeypatch, mutation):
     elif mutation == "redbud_child_nodes":
         # the last 2-4 nodes of a dormant redbud shoot stay vegetative (helios::randu)
         monkeypatch.setattr(RB, "global_randu", lambda a, b: 2)
-        assert _fails("plantarch.easternredbud.age366")
+        assert _fails("plantarch.easternredbud.age548")

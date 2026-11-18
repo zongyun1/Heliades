@@ -768,8 +768,6 @@ class Phytomer:
             if pp.internode.image_texture:
                 # W4-D: textured internode tubes (PA:3243-3284): the bark repeats every 0.25 m along the shoot
                 from .leaf_prototype import resolveTextureFile
-                if pp.internode.image_class_map_file:
-                    raise NotImplementedError("internode spectral class maps are not ported")
                 texture = resolveTextureFile(pp.internode.image_texture)
                 texture_repeat_length = f32(0.25)
                 length = f32(0)
@@ -802,6 +800,14 @@ class Phytomer:
                                                 phytomer_internode_radii[inode_segment], self.internode_colors[inode_segment])
             ctx.set_primitive_data(ctx.object_primitive_uuids(parent_shoot.internode_tube_objID), "object_label", "shoot")
             name_organ_materials(pa, parent_shoot.internode_tube_objID, stem_material_name)
+            if texture and pp.internode.image_class_map_file:
+                # recordInternodeClassMap (PA:3259-3265; W5-E, apple bark)
+                from .leaf_prototype import recordSpectralClassMap
+                recordSpectralClassMap(ctx, ctx.object_primitive_uuids(parent_shoot.internode_tube_objID), texture,
+                                       pp.internode.image_class_map_file, "internode",
+                                       " A class map is made for one texture (see utilities/leaf_class_maps). If the "
+                                       "internode texture was changed, clear InternodeParameters::image_class_map_file, "
+                                       "or set it to a class map made for the new texture.")
 
         # ---- petioles
         self.inflorescence_bending_axis = np.zeros(3, f32)

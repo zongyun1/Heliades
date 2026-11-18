@@ -238,9 +238,14 @@ def make_closed_fruit_surfaces_one_sided(ctx, objID: int, fruit_material_name: s
 
 @ports("recordFruitClassMap")
 def record_fruit_class_map(ctx, objID_fruit: int, params):
+    """PA:790-796 (W5-E: apple)."""
     if not params.inflorescence.fruit_class_map_file:
         return
-    raise NotImplementedError("fruit spectral class maps (recordSpectralClassMap) are not ported")
+    from .leaf_prototype import recordSpectralClassMap
+    recordSpectralClassMap(ctx, ctx.object_primitive_uuids(objID_fruit), "", params.inflorescence.fruit_class_map_file,
+                           "fruit", " A class map is made for one texture (see utilities/leaf_class_maps). If the fruit "
+                           "prototype or its texture was changed, clear InflorescenceParameters::fruit_class_map_file, "
+                           "or set it to a class map made for the new texture.")
 
 
 # ---- prototypes ----------------------------------------------------------------------------------------

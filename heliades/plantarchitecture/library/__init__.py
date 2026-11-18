@@ -121,3 +121,14 @@ from . import grapevine_wye  # noqa: E402
 
 SHOOT_INITIALIZERS["grapevine_Wye"] = grapevine_wye.initializeGrapevineWyeShoots
 PLANT_BUILDERS["grapevine_Wye"] = grapevine_wye.buildGrapevineWye
+
+# W5-E: fruit / ornamental trees (apple, apple_fruitingwall, olive, easternredbud); the build parameters of
+# apple_fruitingwall and olive are registered by trees.register_build_parameters
+from . import apple, easternredbud, olive  # noqa: E402
+
+SHOOT_INITIALIZERS.update(apple=apple.initializeAppleTreeShoots,
+                          apple_fruitingwall=apple.initializeAppleFruitingWallShoots,
+                          olive=olive.initializeOliveTreeShoots,
+                          easternredbud=easternredbud.initializeEasternRedbudShoots)
+PLANT_BUILDERS.update(apple=apple.buildAppleTree, apple_fruitingwall=apple.buildAppleFruitingWall,
+                      olive=olive.buildOliveTree, easternredbud=easternredbud.buildEasternRedbudPlant)

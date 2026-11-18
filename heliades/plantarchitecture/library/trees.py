@@ -52,6 +52,11 @@ def register_build_parameters(pa):
     for name in ("almond", "almond_independence", "apple", "pistachio"):
         registerPlantModelBuildParameters(pa, name, list(TREE_TRAINING_PARAMETERS))
     registerPlantModelBuildParameters(pa, "walnut", [tree_trunk_height, tree_num_scaffolds, walnut_scaffold_angle])
+    # W5-E (PL:516, 519)
+    from .apple import APPLE_FRUITINGWALL_PARAMETERS
+    from .olive import olive_trunk_height
+    registerPlantModelBuildParameters(pa, "apple_fruitingwall", list(APPLE_FRUITINGWALL_PARAMETERS))
+    registerPlantModelBuildParameters(pa, "olive", [olive_trunk_height])
 
 
 @ports("trunkMaxNodes")
@@ -82,6 +87,23 @@ def scaffold_yaw(ctx, i: int, num_scaffolds: int) -> np.float32:
     r = ctx.randu(f32(-0.2), f32(0.2))
     q = f32(f32(f32(i) + r) / f32(num_scaffolds))
     return f32(float(f32(q * f32(2))) * math.pi)
+
+
+@ports("PlantArchitecture::setShootInternodeLengthMax")
+def setShootInternodeLengthMax(pa, plantID, shootID, internode_length_max):
+    """PA:7787-7793 (W5-E)."""
+    if plantID not in pa.plant_instances:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::setShootInternodeLengthMax): Plant with ID of {plantID} "
+                                     "does not exist.")
+    tree = pa.plant_instances[plantID].shoot_tree
+    if shootID >= len(tree):
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::setShootInternodeLengthMax): Shoot with ID of {shootID} "
+                                     f"does not exist on plant {plantID}.")
+    internode_length_max = f32(internode_length_max)
+    if not internode_length_max > 0:
+        raise PlantArchitectureError("ERROR (PlantArchitecture::setShootInternodeLengthMax): The internode length must be "
+                                     f"greater than zero, but {float(internode_length_max):f} was given.")
+    tree[shootID].internode_length_max_shoot_initial = internode_length_max
 
 
 def kill_trunk_buds(pa, plantID: int, uID_trunk: int):
@@ -170,4 +192,4 @@ def growSpursFromUnbrokenBuds(phytomer, spur_fraction):
 __all__ = ["tree_trunk_height", "tree_num_scaffolds", "tree_scaffold_angle", "walnut_scaffold_angle",
            "TREE_TRAINING_PARAMETERS", "register_build_parameters", "trunkMaxNodes", "checkScaffoldsFitTrunk",
            "trunk_node_count", "scaffold_yaw", "kill_trunk_buds", "nodesToKeepForLength", "cutShootToLength",
-           "releaseBudsBelowCut", "growSpursFromUnbrokenBuds"]
+           "releaseBudsBelowCut", "growSpursFromUnbrokenBuds", "setShootInternodeLengthMax"]

@@ -6,7 +6,8 @@
     python scripts/bench/fast_survey.py --distribution 1-32 --out dist.jsonl grapevine_VSP
 
 ``--sensitivity`` measures the floor fast mode cannot go below: exact mode against exact mode with every leaf area
-read (``Phytomer::getLeafArea``, ``Context::getObjectArea``) scaled by 1 + 1e-7 (one float32 rounding).
+read (every batched primitive area, which ``getObjectArea`` and the leaf / season bookkeeping use)
+moved by one float32 ulp up or down (a fixed pattern per UUID).
 ``--distribution`` records the plant metrics of every seed in both modes (for ``compare_distributions``).
 """
 from __future__ import annotations
@@ -49,18 +50,20 @@ def _check(job):
 def _sensitivity(job):
     model, age, seed = job
     import numpy as np
-    from heliades.core.objects import ObjectsMixin
+    from heliades.core.store import PrimitiveStore
     from heliades.parity.fastmode import compare, record
     a = record(model, age, seed, "exact")
-    orig = ObjectsMixin.object_area
+    orig = PrimitiveStore.areas_rows
 
-    def bumped(self, oid):
-        return np.float32(orig(self, oid) * (1 + 1e-7))
-    ObjectsMixin.object_area = bumped
+    def bumped(self, idx, V=None):
+        A = orig(self, idx, V)
+        up = (np.asarray(idx, np.int64) * 2654435761 >> 7) & 1          # a fixed +-1 ulp pattern per UUID
+        return np.where(up == 1, np.nextafter(A, np.float32(np.inf)), np.nextafter(A, np.float32(-np.inf))).astype(np.float32)
+    PrimitiveStore.areas_rows = bumped
     try:
         b = record(model, age, seed, "exact")
     finally:
-        ObjectsMixin.object_area = orig
+        PrimitiveStore.areas_rows = orig
     r = compare(a, b)
     r["kind"] = "sensitivity"
     return r

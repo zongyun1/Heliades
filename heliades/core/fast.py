@@ -256,6 +256,23 @@ def _triangle_rows_fast(v0, v1, v2) -> np.ndarray:
     return (V2 @ _INV_V1_64).astype(f32).reshape(m, 16)
 
 
+_AFFINE = np.array([0, 0, 0, 1], f32)
+
+
+def _as_matrix(P) -> np.ndarray:
+    """A pending transform as a float64 4x4 (a translation-only one is kept as [tx, ty, tz])."""
+    if type(P) is list:
+        M = _I4.copy()
+        M[:3, 3] = P
+        return M
+    return P
+
+
+def _translated_matrix(M, s):
+    from .object_transforms import _apply_translation
+    return _apply_translation(s, M)
+
+
 def _rows_of(ix) -> np.ndarray:
     return np.arange(ix.start, ix.stop) if isinstance(ix, slice) else np.asarray(ix, np.int64)
 
@@ -342,7 +359,7 @@ class FastSceneMixin:
                 rows = _rows_of(ix)
                 if len(rows):
                     groups.append(rows)
-                    mats.append(P)
+                    mats.append(_as_matrix(P))
             if groups:
                 self._apply_matrices(groups, mats)
         finally:
@@ -408,31 +425,45 @@ class FastSceneMixin:
     # ---- object transforms ------------------------------------------------------------------------------
     def _compose(self, obj, T64):
         P = self._pend.get(obj.oid)
-        self._pend[obj.oid] = T64.copy() if P is None else T64 @ P
+        self._pend[obj.oid] = T64.copy() if P is None else T64 @ _as_matrix(P)
 
     def translate_object(self, oids, shift):
-        s = V.v3(shift)
-        if not s.any():
-            for oid in _ids(oids):
-                self._object(oid, "Context::translateObject")
+        """The object matrices get exact mode's float32 add; the members a pending shift (a translation-only pending
+        transform is kept as three Python floats, a general one as a float64 matrix)."""
+        s = np.asarray(shift, f32).reshape(3)
+        ids = [int(oids)] if isinstance(oids, (int, np.integer)) else [int(o) for o in oids]
+        objects = self.objects
+        objs = [objects.get(o) for o in ids]
+        if None in objs:                                     # raise at the first missing one, after the earlier ones
+            for k, o in enumerate(objs):
+                if o is None:
+                    if k:
+                        self.translate_object(ids[:k], s)
+                    self._object(ids[k], "Context::translateObject")
+        if not (s[0] or s[1] or s[2]):
             return
-        s64 = s.astype(f64)
+        Ms = np.array([o.transform for o in objs], f32).reshape(-1, 16)
+        if not (Ms[:, 12:16] == _AFFINE).all():
+            for o in objs:
+                o.transform = _translated_matrix(o.transform, s)
+        else:
+            Ms[:, 3:12:4] += s                                # M[3] += s.x, M[7] += s.y, M[11] += s.z (float32)
+            for o, M in zip(objs, Ms):
+                o.transform = M
+        sx, sy, sz = float(s[0]), float(s[1]), float(s[2])
         pend = self._pend
-        for oid in _ids(oids):
-            obj = self._object(oid, "Context::translateObject")
-            M = obj.transform
-            if (M[12:16] == (0, 0, 0, 1)).all():
-                M = M.copy()
-                M[3:12:4] = M[3:12:4] + s
-                obj.transform = M
-            else:
-                from .primitives import make_translation_matrix
-                obj.transform = matmult(make_translation_matrix(s), M)
-            P = pend.get(oid)
+        for o in ids:
+            P = pend.get(o)
             if P is None:
-                P = _I4.copy()
-                pend[oid] = P
-            P[:3, 3] += s64                                   # T(s) @ P for an affine P
+                pend[o] = [sx, sy, sz]
+            elif type(P) is list:
+                P[0] += sx
+                P[1] += sy
+                P[2] += sz
+            else:
+                P[0, 3] += sx                                 # T(s) @ P for an affine P
+                P[1, 3] += sy
+                P[2, 3] += sz
         self._store._dirty = True
 
     def _left_multiply_lazy(self, ids, T, who):

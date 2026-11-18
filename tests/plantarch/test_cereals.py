@@ -6,6 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from heliades.core import scene as SC
 from heliades.core.scene import Scene
 from heliades.plantarchitecture import PlantArchitecture, hooks
 from heliades.plantarchitecture.library import build_parameters as BP
@@ -137,10 +138,10 @@ MUTATIONS = {
         "                sz = ctx.randu(f32(-0.25), f32(0.25))\n                sy = ctx.randu(f32(-0.25), f32(0.25))\n",
         "                sy = ctx.randu(f32(-0.25), f32(0.25))\n                sz = ctx.randu(f32(-0.25), f32(0.25))\n",
         "plantarch.maize.tassel", (0,)),
-    # Context::addTriangle(RGBcolor) clamps the brightened colors to [0, 1]
+    # Context::addTriangle(RGBcolor) clamps the brightened colors to [0, 1] (done by the core since P1)
     "tassel_no_color_clamp": (
-        GI, None, "add_triangle", "    return ctx.add_triangle(v0, v1, v2, np.where(c < 0, f32(0), np.where(c > 1, f32(1), c)))\n",
-        "    return ctx.add_triangle(v0, v1, v2, c)\n", "plantarch.maize.tassel", (0,)),
+        SC, None, "_color_rgba", "    return np.where(c < 0, f32(0), np.where(c > 1, f32(1), c)).astype(f32)\n",
+        "    return c\n", "plantarch.maize.tassel", (0,)),
     # secondary branches: the droop argument (right) is drawn before the insertion angle
     "tassel_secondary_draws_left_to_right": (
         MZ, None, "buildMaizeTassel",

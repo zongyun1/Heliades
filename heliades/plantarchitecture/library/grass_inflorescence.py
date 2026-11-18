@@ -75,10 +75,9 @@ def rgb_scale(color, factor) -> np.ndarray:
 
 def add_triangle(ctx, v0, v1, v2, color) -> int:
     """``Context::addTriangle(v0, v1, v2, const RGBcolor&)``: the color goes through ``make_RGBAcolor(color, 1)``, whose
-    constructor clamps every channel to [0, 1] (``RGBcolor::scale`` does not clamp, so a brightened color can exceed 1;
-    the Heliades core ``add_triangle`` does not clamp)."""
-    c = np.asarray(color, f32)
-    return ctx.add_triangle(v0, v1, v2, np.where(c < 0, f32(0), np.where(c > 1, f32(1), c)))
+    constructor clamps every channel to [0, 1] (``RGBcolor::scale`` does not clamp, so a brightened color can exceed 1).
+    The Heliades core clamps primitive colors the same way since P1 (``scene._color_rgba``)."""
+    return ctx.add_triangle(v0, v1, v2, np.asarray(color, f32))
 
 
 # ---- build parameters --------------------------------------------------------------------------------------------

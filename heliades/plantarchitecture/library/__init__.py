@@ -74,3 +74,14 @@ from . import grapevine  # noqa: E402
 
 SHOOT_INITIALIZERS["grapevine_VSP"] = grapevine.initializeGrapevineVSPShoots
 PLANT_BUILDERS["grapevine_VSP"] = grapevine.buildGrapevineVSP
+
+# W5-B: herbaceous vegetables (shoot initializers + builders)
+from . import asparagus, butterlettuce, cowpea, cucumber, sugarbeet  # noqa: E402
+
+SHOOT_INITIALIZERS.update(asparagus=asparagus.initializeAsparagusShoots,
+                          butterlettuce=butterlettuce.initializeButterLettuceShoots,
+                          sugarbeet=sugarbeet.initializeSugarbeetShoots, cucumber=cucumber.initializeCucumberShoots,
+                          cowpea=cowpea.initializeCowpeaShoots)
+PLANT_BUILDERS.update(asparagus=asparagus.buildAsparagusPlant, butterlettuce=butterlettuce.buildButterLettucePlant,
+                      sugarbeet=sugarbeet.buildSugarbeetPlant, cucumber=cucumber.buildCucumberPlant,
+                      cowpea=cowpea.buildCowpeaPlant)

@@ -239,8 +239,11 @@ def test_registry_and_errors():
     assert pa.plant_type_map["almond"] == "tree" and pa.getPlantModelLeafInclinationDistribution("cowpea")[0] == f32(1.398)
     with pytest.raises(PlantArchitectureError):
         pa.loadPlantModelFromLibrary("nope")
-    with pytest.raises(NotImplementedError):
-        pa.loadPlantModelFromLibrary("cowpea")
+    from heliades.plantarchitecture.library import MODELS, SHOOT_INITIALIZERS
+    unported = [name for name, _, _ in MODELS if name not in SHOOT_INITIALIZERS]
+    if unported:
+        with pytest.raises(NotImplementedError):
+            pa.loadPlantModelFromLibrary(unported[0])
     with pytest.raises(PlantArchitectureError):
         pa.registerPlantModel("x", None, None, "herbaceous", (1.0, 0.0))
     with pytest.raises(PlantArchitectureError):

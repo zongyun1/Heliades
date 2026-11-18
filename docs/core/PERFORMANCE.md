@@ -88,6 +88,24 @@ compared bit for bit (geometry, objects, materials, data) with the oracle and wi
 | maize 56 d | 0.55 s, 99 MB | 10.8 s, 90 MB | 2.71 s, 87 MB | 20x -> 4.9x |
 | bean 60 d | 0.32 s, 109 MB | 3.77 s, 98 MB | 0.85 s, 99 MB | 12x -> 2.7x |
 
+Models merged later (W5), single runs, after P1 (all bit-identical to Helios; "before" from the package notes):
+
+| model, age | Helios | Heliades before P1 | Heliades after |
+|---|---|---|---|
+| cucumber 165 d | 1.1 s | - | 9.3 s |
+| puncturevine 45 d (589k prims) | 3.9 s | - | 61 s |
+| grapevine_Wye 100 d / 120 d (866k prims) | 2.5 / 3.1 s | ~230 s / 3015 s | 15.9 / 17.0 s |
+| almond 548 d / 913 d | 0.6 / 2.3 s | 27 / 103 s | 14.3 / 55-60 s |
+| pistachio 548 d | 0.4 s | ~30 s | 14.8 s |
+| walnut 732 d | 0.8 s | - | 10.1 s |
+| olive 1825 d (1.30M prims) | 16.9 s, 2.4 GB | > 5.7 GB, not run | 313 s, 1.6 GB |
+| sorghum 365 d | 5.0 s | 173 s | 33.8 s |
+| sorghum 66 d, 6 tillers | 5.5 s | 424 s | 51.1 s |
+| maize 365 d | 1.2 s | 70 s | 8.7 s |
+
+The trees and puncturevine (many small objects) are now bound by growth-logic Python (per-phytomer bookkeeping,
+tube frames, season logic), not by the core.
+
 cProfile split (time inside `heliades/core` calls made from outside the core vs everything else), tomato /
 grapevine 120 d: before 98% / 92% core (per-primitive `matmult`, `_apply_translation`, `deepcopy`); after
 82% / 65% core of a much smaller total, the remainder being growth logic (tube frames, cluster packing,

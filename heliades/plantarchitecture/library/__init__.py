@@ -94,3 +94,13 @@ from . import pistachio  # noqa: E402
 
 SHOOT_INITIALIZERS["pistachio"] = pistachio.initializePistachioTreeShoots
 PLANT_BUILDERS["pistachio"] = pistachio.buildPistachioTree
+# W5-B: herbaceous vegetables (shoot initializers + builders)
+from . import asparagus, butterlettuce, cowpea, cucumber, sugarbeet  # noqa: E402
+
+SHOOT_INITIALIZERS.update(asparagus=asparagus.initializeAsparagusShoots,
+                          butterlettuce=butterlettuce.initializeButterLettuceShoots,
+                          sugarbeet=sugarbeet.initializeSugarbeetShoots, cucumber=cucumber.initializeCucumberShoots,
+                          cowpea=cowpea.initializeCowpeaShoots)
+PLANT_BUILDERS.update(asparagus=asparagus.buildAsparagusPlant, butterlettuce=butterlettuce.buildButterLettucePlant,
+                      sugarbeet=sugarbeet.buildSugarbeetPlant, cucumber=cucumber.buildCucumberPlant,
+                      cowpea=cowpea.buildCowpeaPlant)

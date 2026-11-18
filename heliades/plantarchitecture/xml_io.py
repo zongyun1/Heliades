@@ -63,11 +63,10 @@ def plant_structure_xml(pa, plantID: int) -> str:
         for name in sorted(inst.build_parameters):
             value = "%.9g" % float(f32(inst.build_parameters[name]))
             w(f'\t\t<build_parameter name="{name}"> {value} </build_parameter>')
-    if getattr(inst, "leaf_angle_tracking_enabled", False):
-        t = inst.leaf_angle_tracker                              # W5-D (IO:612-615)
-        if t.track_elevation:
-            w(f"\t\t<leaf_inclination_Beta_distribution> {cout(t.Beta_mu_inclination)} {cout(t.Beta_nu_inclination)} "
-              "</leaf_inclination_Beta_distribution>")
+    if getattr(inst, "leaf_angle_tracking_enabled", False) and inst.leaf_angle_tracker.track_elevation:   # W5-B (IO:612)
+        t = inst.leaf_angle_tracker
+        w(f"\t\t<leaf_inclination_Beta_distribution> {cout(t.Beta_mu_inclination)} {cout(t.Beta_nu_inclination)} "
+          "</leaf_inclination_Beta_distribution>")
 
     for shoot in inst.shoot_tree:
         if shoot.isPruned():
@@ -235,11 +234,11 @@ def _write_phytomer(w, shoot, ph, phytomer_index):
                     raise NotImplementedError("writing reshaped leaves is not ported")
             if (petiole < len(ph.leaf_pose_prescribed) and leaf < len(ph.leaf_pose_prescribed[petiole])
                     and ph.leaf_pose_prescribed[petiole][leaf]):
-                # W5-D (IO:1002-1010): a posed leaf records its base (leaf_stalk_base_placed is never set here)
+                # W5-B (IO:1002-1011): a leaf steered by setLeafNormal (no stalk base of its own)
                 lb = ph.leaf_bases[petiole][leaf]
                 w("\t\t\t\t\t\t\t<leaf_prescribed>1</leaf_prescribed>")
                 w(f"\t\t\t\t\t\t\t<leaf_base>{cout(lb[0])} {cout(lb[1])} {cout(lb[2])}</leaf_base>")
-                if getattr(ph, "leaf_stalk_base_placed", None):
+                if ph.leaf_objIDs[petiole][leaf] in getattr(ph, "leaf_stalk_base_placed", {}):
                     raise NotImplementedError("writing placed leaf stalk bases is not ported")
             w("\t\t\t\t\t\t</leaf>")
         _write_floral_buds(w, ph, petiole)

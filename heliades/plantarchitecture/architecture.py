@@ -221,11 +221,11 @@ class PlantArchitecture(PlantArchitectureAPI):
         self.plant_instances[plantID].plant_name = self.current_plant_model
         if self.output_object_data.get("plant_name") or self.output_object_data.get("plant_type"):
             raise NotImplementedError("optional plant_name / plant_type object data are not ported")
-        if self.current_plant_model in self.plant_leaf_inclination_distribution_map:
-            # W5-D: leaf elevation-angle tracking (PL:743-746), lambda = library_leaf_angle_lambda_degrees (180)
-            from .leaf_angle_tracking import enablePlantLeafElevationAngleDistributionTracking
+        if self.current_plant_model in self.plant_leaf_inclination_distribution_map:     # W5-B (PL:743-746)
+            from .leaf_angle_tracking import (enablePlantLeafElevationAngleDistributionTracking,
+                                              library_leaf_angle_lambda_degrees)
             mu, nu = self.plant_leaf_inclination_distribution_map[self.current_plant_model]
-            enablePlantLeafElevationAngleDistributionTracking(self, plantID, mu, nu, f32(180))
+            enablePlantLeafElevationAngleDistributionTracking(self, plantID, mu, nu, library_leaf_angle_lambda_degrees)
         if f32(age) > 0:
             self.advanceTime(plantID, age)
         return plantID

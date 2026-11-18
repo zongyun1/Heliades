@@ -344,8 +344,8 @@ def _advance_plant_one_step(pa, plantID, dt):
             internode_length_max = shoot.internode_length_max_shoot_initial
             appendPhytomerToShoot(pa, plantID, shoot.ID, sp.phytomer_parameters, internode_radius, internode_length_max,
                                   f32(0.01), f32(0.01))
-            if getattr(inst, "leaf_angle_tracking_enabled", False) and shoot.phytomers:
-                from .leaf_angle_tracking import add_to_cohort             # W5-D (PA:12249)
+            if getattr(inst, "leaf_angle_tracking_enabled", False) and shoot.phytomers:     # W5-B (PA:12265-12267)
+                from .leaf_angle_tracking import add_to_cohort
                 add_to_cohort(inst, shoot.ID, len(shoot.phytomers) - 1)
             shoot.phyllochron_counter = f32(shoot.phyllochron_counter - shoot.phyllochron_instantaneous)
 
@@ -355,7 +355,7 @@ def _advance_plant_one_step(pa, plantID, dt):
     # W5-D: cuts requested by this sub-step's phytomer callbacks (PA:12267)
     from .seasons import flushDeferredPrunes
     flushDeferredPrunes(pa)
-    # W5-D: leaf angle distribution tracking (PA:12274; a no-op unless enabled for the plant)
+    # updatePlantLeafAngleDistributionTracking (W5-B, PA:12310)
     if getattr(inst, "leaf_angle_tracking_enabled", False):
         from .leaf_angle_tracking import updatePlantLeafAngleDistributionTracking
         updatePlantLeafAngleDistributionTracking(pa, plantID)
@@ -498,8 +498,8 @@ def _break_vegetative_bud(pa, plantID, inst, shoot, phytomer, node_index, parent
     tree = inst.shoot_tree
     if phytomer.internode_radius_initial > 0:
         tree[childID].growth_state.internode_radius_cap = phytomer.internode_radius_initial
-    if getattr(inst, "leaf_angle_tracking_enabled", False):
-        from .leaf_angle_tracking import add_to_cohort                 # W5-D (PA:12221)
+    if getattr(inst, "leaf_angle_tracking_enabled", False):                    # W5-B (PA:12218-12220)
+        from .leaf_angle_tracking import add_to_cohort
         add_to_cohort(inst, childID, 0)
     phytomer.setVegetativeBudState(BUD_DEAD, vbud)
     vbud.shoot_ID = childID

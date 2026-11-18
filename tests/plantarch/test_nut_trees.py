@@ -163,7 +163,7 @@ def test_mutations_are_caught(monkeypatch, mutation):
         assert _fails("plantarch.walnut.age170")
     elif mutation == "no_leaf_tracking":
         # pistachio leaves are steered toward Beta(1.32, 1.85)
-        monkeypatch.setattr(LAT, "_choose_target", lambda *a: (False, None))
+        monkeypatch.setattr(LAT, "chooseLeafAngleTarget", lambda *a, **k: None)
         assert _fails("plantarch.pistachio.age170")
     elif mutation == "pistachio_tip_length":
         # scaffolds are tipped at 0.45 m in their first season (late in it: not yet by day 220 on seed 1)

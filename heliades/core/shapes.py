@@ -124,7 +124,7 @@ class ShapesMixin:
         """Context::addTile with a texture (Context.cpp:2005-2104; W5-E, olive leaves): loose textured patches (no
         object). A sub-patch whose solid fraction is 0 is dropped before it takes a UUID."""
         from .objects import _correct_texture_repeat
-        from .primitives import PATCH
+        from .primitives import PATCH, rotated, scaled, translated
         from .texture import does_texture_file_exist, validate_texture_file_extension
         if not validate_texture_file_extension(texture_file):
             raise ValueError(f"ERROR (Context::addTile): Texture file {texture_file} is not PNG or JPEG format.")
@@ -156,14 +156,13 @@ class ShapesMixin:
                 if self.textures[texture_file].get_solid_fraction(np.minimum(uv, f32(1.0))) == 0:
                     continue
                 u = self._new_textured(PATCH, np.eye(4, dtype=f32).reshape(16), texture_file, uv)
-                p = self.primitives[u]
-                p.scale((sub[0], sub[1], 1))
-                p.translate(sc)
+                # Primitive::scale / translate / rotate in order, on a local matrix written to the store once
+                T = translated(scaled(self._store.T[u], (sub[0], sub[1], 1)), sc)
                 if el != 0:
-                    p.rotate(-el, "x")
+                    T = rotated(T, -el, "x")
                 if az != 0:
-                    p.rotate(-az, "z")
-                p.translate(center)
+                    T = rotated(T, -az, "z")
+                self._store.T[u] = translated(T, center)
                 uuids.append(u)
         return uuids
 

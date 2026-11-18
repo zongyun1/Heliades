@@ -96,7 +96,8 @@ def _run(args):
 def build_plants(jobs, workers: int | None = None, out_dir: str | None = None, collect=None,
                  start_method: str | None = None, maxtasksperchild: int | None = 8) -> list:
     """Build every job (a :class:`PlantJob` or a (model, age[, seed]) tuple) on ``workers`` processes
-    (default: ``os.cpu_count()``; 1 or 0 builds in this process). Returns the results in job order."""
+    (default: ``os.cpu_count()``; 1 or 0 builds in this process; processes are spawned unless ``start_method`` says
+    otherwise, so ``collect`` must be importable). Returns the results in job order."""
     jobs = [j if isinstance(j, PlantJob) else PlantJob(*j) for j in jobs]
     if out_dir is not None:
         os.makedirs(out_dir, exist_ok=True)
@@ -105,7 +106,7 @@ def build_plants(jobs, workers: int | None = None, out_dir: str | None = None, c
     if workers <= 1 or len(jobs) <= 1:
         return [_run(a) for a in args]
     import multiprocessing as mp
-    ctx = mp.get_context(start_method) if start_method else mp.get_context()
+    ctx = mp.get_context(start_method or "spawn")     # no fork of a process that may hold threads (BLAS, Warp)
     with ctx.Pool(min(workers, len(jobs)), maxtasksperchild=maxtasksperchild) as pool:
         return pool.map(_run, args, chunksize=1)
 

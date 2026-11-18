@@ -74,3 +74,18 @@ from . import grapevine  # noqa: E402
 
 SHOOT_INITIALIZERS["grapevine_VSP"] = grapevine.initializeGrapevineVSPShoots
 PLANT_BUILDERS["grapevine_VSP"] = grapevine.buildGrapevineVSP
+
+# W5-A: the library grasses (wheat, rice, sorghum; maize above). Their build parameters are registered by
+# build_parameters.register_build_parameters through cereals_registry.
+from . import wheat  # noqa: E402
+
+SHOOT_INITIALIZERS["wheat"] = lambda pa: wheat.initializeWheatShoots(pa)
+PLANT_BUILDERS["wheat"] = lambda pa, pos: wheat.buildWheatPlant(pa, pos)
+from . import sorghum  # noqa: E402
+
+SHOOT_INITIALIZERS["sorghum"] = lambda pa: sorghum.initializeSorghumShoots(pa)
+PLANT_BUILDERS["sorghum"] = lambda pa, pos: sorghum.buildSorghumPlant(pa, pos)
+from . import rice  # noqa: E402
+
+SHOOT_INITIALIZERS["rice"] = lambda pa: rice.initializeRiceShoots(pa)
+PLANT_BUILDERS["rice"] = lambda pa, pos: rice.buildRicePlant(pa, pos)

@@ -365,8 +365,9 @@ class Shoot:
 
     @ports("Shoot::makeDormant")
     def makeDormant(self):
-        raise NotImplementedError("Shoot::makeDormant (seasonal dormancy, leaf removal) is not ported; the tomato's "
-                                  "1000-day dormancy period is never reached before max_age")
+        """PA:2264-2294 (W5-D, in seasons.py)."""
+        from .seasons import makeDormant
+        makeDormant(self)
 
     @ports("Shoot::addTerminalFloralBud")
     def addTerminalFloralBud(self):
@@ -397,6 +398,14 @@ class Shoot:
         for p, ph in enumerate(self.phytomers):
             volume = f32(volume + ph.calculatePhytomerVolume(p))
         return volume
+
+    @ports("Shoot::calculateShootLength")
+    def calculateShootLength(self) -> np.float32:
+        """PA:2345-2351 (W5-D): sum of the internode lengths (float)."""
+        length = f32(0)
+        for ph in self.phytomers:
+            length = f32(length + ph.getInternodeLength())
+        return length
 
     @ports("Shoot::refreshDownstreamInflorescenceArea")
     def refreshDownstreamInflorescenceArea(self) -> np.float32:

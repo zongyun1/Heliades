@@ -243,11 +243,18 @@ def _advance_plant_one_step(pa, plantID, dt):
 
     inst.current_age = f32(inst.current_age + dt)
     inst.time_since_dormancy = f32(inst.time_since_dormancy + dt)
-    # updateShadowGrid / sumPlantLeafArea / captureSeasonPeakLeaves: no draws, no geometry (module docstring)
-
+    # W5-D: updateShadowGrid / sumPlantLeafArea / captureSeasonPeakLeaves (PA:11866-11880, seasons.py). They make
+    # no draws and write no geometry; they only feed the season boundary, so a plant that never reaches it
+    # (dd_to_dormancy_break + dd_to_dormancy beyond max_age, every herbaceous crop) skips them.
     dormancy_period = f32(inst.dd_to_dormancy_break + inst.dd_to_dormancy)
+    if dormancy_period > 0 and dormancy_period <= inst.max_age:
+        from .seasons import season_step
+        season_step(pa, plantID)
+
     if dormancy_period > 0 and inst.time_since_dormancy >= dormancy_period:
-        raise NotImplementedError("the season boundary (shedShadedBranches, makeDormant, harvestPlant) is not ported")
+        from .seasons import season_boundary                       # W5-D (PA:11888-11914)
+        season_boundary(pa, plantID)
+        return
 
     for shoot in tree:
         if shoot.parent_shoot_ID < 0:
@@ -342,7 +349,10 @@ def _advance_plant_one_step(pa, plantID, dt):
         if getattr(inst, "epicormic_shoot_label", ""):
             raise NotImplementedError("epicormic shoots are not ported")
 
-    # flushDeferredPrunes (nothing queued), updatePlantLeafAngleDistributionTracking (off)
+    # W5-D: cuts requested by this sub-step's phytomer callbacks (PA:12267)
+    from .seasons import flushDeferredPrunes
+    flushDeferredPrunes(pa)
+    # updatePlantLeafAngleDistributionTracking (off)
     # W4-D: an attraction-steered phytomer forces the Context update (PA:12312-12326; collision detection is off)
     if pa.collision_avoidance_applied and pa.force_update_on_collision:
         tree[0].updateShootNodes(True)

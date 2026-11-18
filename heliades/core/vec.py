@@ -151,6 +151,51 @@ def asinf(x) -> np.float32:
     return f32(_ASINF(float(f32(x)))) if _ASINF else f32(math.asin(float(f32(x))))
 
 
+def _load_libm_float(names):
+    """glibc float functions by name (W5-D: tanf, expf, powf, atan2f, sqrtf)."""
+    import ctypes
+    import ctypes.util
+    out = {}
+    try:
+        m = ctypes.CDLL(ctypes.util.find_library("m") or "libm.so.6")
+    except OSError:
+        return out
+    for name, nargs in names:
+        fn = getattr(m, name, None)
+        if fn is None:
+            continue
+        fn.restype, fn.argtypes = ctypes.c_float, [ctypes.c_float] * nargs
+        out[name] = fn
+    return out
+
+
+_LIBM_F = _load_libm_float((("tanf", 1), ("expf", 1), ("powf", 2), ("atan2f", 2)))
+
+
+def tanf(x) -> np.float32:
+    """C tanf (std::tan of a float)."""
+    fn = _LIBM_F.get("tanf")
+    return f32(fn(float(f32(x)))) if fn else f32(math.tan(float(f32(x))))
+
+
+def expf(x) -> np.float32:
+    """C expf (std::exp of a float)."""
+    fn = _LIBM_F.get("expf")
+    return f32(fn(float(f32(x)))) if fn else f32(math.exp(float(f32(x))))
+
+
+def powf(x, y) -> np.float32:
+    """C powf (std::pow(float, float))."""
+    fn = _LIBM_F.get("powf")
+    return f32(fn(float(f32(x)), float(f32(y)))) if fn else f32(math.pow(float(f32(x)), float(f32(y))))
+
+
+def atan2f(y, x) -> np.float32:
+    """C atan2f (std::atan2 of floats)."""
+    fn = _LIBM_F.get("atan2f")
+    return f32(fn(float(f32(y)), float(f32(x)))) if fn else f32(math.atan2(float(f32(y)), float(f32(x))))
+
+
 @ports("helios::deg2rad")
 def deg2rad(deg) -> np.float32:
     """deg * float(M_PI) / 180.f, left to right in float."""

@@ -74,3 +74,19 @@ from . import grapevine  # noqa: E402
 
 SHOOT_INITIALIZERS["grapevine_VSP"] = grapevine.initializeGrapevineVSPShoots
 PLANT_BUILDERS["grapevine_VSP"] = grapevine.buildGrapevineVSP
+
+# W5-D: nut trees (almond x4, pistachio, walnut); their build parameters are registered by
+# build_parameters.register_build_parameters (trees.register_build_parameters)
+from . import almond  # noqa: E402
+
+SHOOT_INITIALIZERS.update(almond=almond.initializeAlmondTreeShoots,
+                          almond_aldrich=almond.initializeAlmondTreeAldrichShoots,
+                          almond_independence=almond.initializeAlmondTreeIndependenceShoots,
+                          almond_wood_colony=almond.initializeAlmondTreeWoodColonyShoots)
+PLANT_BUILDERS.update(almond=almond.buildAlmondTree, almond_aldrich=almond.buildAlmondTreeAldrich,
+                      almond_independence=almond.buildAlmondTreeIndependence,
+                      almond_wood_colony=almond.buildAlmondTreeWoodColony)
+from . import walnut  # noqa: E402
+
+SHOOT_INITIALIZERS["walnut"] = walnut.initializeWalnutTreeShoots
+PLANT_BUILDERS["walnut"] = walnut.buildWalnutTree

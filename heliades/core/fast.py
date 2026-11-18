@@ -442,6 +442,10 @@ class FastSceneMixin:
                     self._object(ids[k], "Context::translateObject")
         if not (s[0] or s[1] or s[2]):
             return
+        if len(ids) > 1 and len(set(ids)) != len(ids):      # a repeated object is translated once per occurrence
+            for o in ids:
+                self.translate_object(o, s)
+            return
         Ms = np.array([o.transform for o in objs], f32).reshape(-1, 16)
         if not (Ms[:, 12:16] == _AFFINE).all():
             for o in objs:

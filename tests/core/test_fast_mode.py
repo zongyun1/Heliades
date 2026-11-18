@@ -154,3 +154,15 @@ def test_mutation_extra_draw_is_detected(monkeypatch):
     monkeypatch.setattr(F.FastSceneMixin, "translate_object", drawing)
     r = check("tomato", 30, 1)
     assert not r["draws"], r
+
+
+def test_repeated_and_missing_objects_in_a_call():
+    A, B = Scene(), Scene(mode="fast")
+    for S in (A, B):
+        t = S.add_tile_object((0, 0, 0), (1, 1), (0, 0), (2, 1))
+        u = S.add_tile_object((1, 0, 0), (1, 1), (0, 0), (1, 1))
+        S.translate_object([t, u, t], (0.5, 0.25, -1.0))           # t moves twice, as in Helios
+        S.rotate_object([u, u], 0.3, "z")
+        with pytest.raises(ValueError):
+            S.translate_object([u, 999], (1.0, 0.0, 0.0))          # u moves, then the missing object raises
+    _same_scene(A, B)

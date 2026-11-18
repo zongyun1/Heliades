@@ -73,6 +73,26 @@ tube data, XML). After the eager batching, the remaining object-transform cost i
 per-object op queue flushed per object on read and globally before `snapshot()`; the row kernels above are
 the flush primitives.
 
+## Measurements
+
+`scripts/bench/plant_build.py` (`buildPlantInstanceFromLibrary`, Context seed 1, wall time of the build,
+min of 3 runs; "before" = main 130af55, one run; peak RSS of the process; shared 16-core machine under load
+from other jobs, so ratios are more meaningful than absolute times). Every "after" build was also saved and
+compared bit for bit (geometry, objects, materials, data) with the oracle and with the "before" build.
+
+| model, age | Helios 1.3.98 | Heliades before | Heliades after | before / after vs Helios |
+|---|---|---|---|---|
+| tomato 75 d | 0.40 s, 155 MB | 10.4 s, 132 MB | 1.37 s, 89 MB | 26x -> 3.4x |
+| tomato 120 d | 1.41 s, 349 MB | 37.1 s, 329 MB | 3.97 s, 213 MB | 26x -> 2.8x |
+| grapevine_VSP 120 d | 1.60 s, 515 MB | 78.0 s, 553 MB | 9.59 s, 276 MB | 49x -> 6.0x |
+| maize 56 d | 0.55 s, 99 MB | 10.8 s, 90 MB | 2.71 s, 87 MB | 20x -> 4.9x |
+| bean 60 d | 0.32 s, 109 MB | 3.77 s, 98 MB | 0.85 s, 99 MB | 12x -> 2.7x |
+
+cProfile split (time inside `heliades/core` calls made from outside the core vs everything else), tomato /
+grapevine 120 d: before 98% / 92% core (per-primitive `matmult`, `_apply_translation`, `deepcopy`); after
+82% / 65% core of a much smaller total, the remainder being growth logic (tube frames, cluster packing,
+per-phytomer bookkeeping) with no single dominant hot spot.
+
 ## Why the batched code is bit-exact
 
 1. Every row sees **the same float32 operation sequence** as the scalar C++ code, in the same order.

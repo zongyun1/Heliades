@@ -119,6 +119,54 @@ class ShapesMixin:
                 uuids.append(u)
         return uuids
 
+    @ports("Context::addTile(texture)", "Context::addTile(texture,texture_repeat)")
+    def add_tile_textured(self, center, size, rotation, subdiv, texture_file: str, texture_repeat=(1, 1)) -> list[int]:
+        """Context::addTile with a texture (Context.cpp:2005-2104; W5-E, olive leaves): loose textured patches (no
+        object). A sub-patch whose solid fraction is 0 is dropped before it takes a UUID."""
+        from .objects import _correct_texture_repeat
+        from .primitives import PATCH
+        from .texture import does_texture_file_exist, validate_texture_file_extension
+        if not validate_texture_file_extension(texture_file):
+            raise ValueError(f"ERROR (Context::addTile): Texture file {texture_file} is not PNG or JPEG format.")
+        if not does_texture_file_exist(texture_file):
+            raise FileNotFoundError(f"ERROR (Context::addTile): Texture file {texture_file} does not exist.")
+        if texture_repeat[0] < 1 or texture_repeat[1] < 1:
+            raise ValueError("ERROR (Context::addTile): Number of texture repeats must be greater than 0.")
+        sdx, sdy = int(subdiv[0]), int(subdiv[1])
+        rx, ry = _correct_texture_repeat((sdx, sdy), texture_repeat)
+        size = np.asarray(size, f32)
+        sub = np.array([size[0] / f32(sdx), size[1] / f32(sdy)], f32)
+        spx, spy = sdx // rx, sdy // ry
+        uvx, uvy = f32(1.0) / f32(spx), f32(1.0) / f32(spy)
+        self.add_texture(texture_file)
+        W, H = self.textures[texture_file].get_image_resolution()
+        if sdx >= rx * W or sdy >= ry * H:
+            raise ValueError(f"ERROR (Context::addTile): The resolution of the texture image '{texture_file}' is lower than "
+                             "the number of tile subdivisions. Increase resolution of the texture image.")
+        el, az = f32(rotation[0]), f32(rotation[1])
+        center = V.v3(center)
+        uuids = []
+        for j in range(sdy):
+            for i in range(sdx):
+                sc = (f32(-0.5) * size[0] + f32(f32(i) + f32(0.5)) * sub[0],
+                      f32(-0.5) * size[1] + f32(f32(j) + f32(0.5)) * sub[1], 0.0)
+                il, jl = i % spx, j % spy
+                uv = np.array([[f32(il) * uvx, f32(jl) * uvy], [f32(il + 1) * uvx, f32(jl) * uvy],
+                               [f32(il + 1) * uvx, f32(jl + 1) * uvy], [f32(il) * uvx, f32(jl + 1) * uvy]], f32)
+                if self.textures[texture_file].get_solid_fraction(np.minimum(uv, f32(1.0))) == 0:
+                    continue
+                u = self._new_textured(PATCH, np.eye(4, dtype=f32).reshape(16), texture_file, uv)
+                p = self.primitives[u]
+                p.scale((sub[0], sub[1], 1))
+                p.translate(sc)
+                if el != 0:
+                    p.rotate(-el, "x")
+                if az != 0:
+                    p.rotate(-az, "z")
+                p.translate(center)
+                uuids.append(u)
+        return uuids
+
     # ---- sphere --------------------------------------------------------------------------------
 
     @ports("Context::addSphereObject")

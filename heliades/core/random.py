@@ -296,3 +296,62 @@ class ContextRandom:
         # expression is evaluated in double and rounded once (verified: 5000/5000 draws).
         z = float(self.norm(self.generator))
         return _f32(float(_f32(mean)) + z * abs(float(_f32(stddev))))
+
+
+# ---- the process-wide generator (global.cpp:360-388; W5-E) ------------------------------------------------
+
+class MT19937:
+    """std::mt19937 (seeded with ``init_genrand``, like ``std::mt19937::seed(uint)``). min()=0, max()=2^32-1."""
+
+    MIN, MAX = 0, 0xFFFFFFFF
+
+    def __init__(self, seed: int = 5489):
+        self.seed(seed)
+
+    def seed(self, s: int = 5489):
+        mt = [0] * 624
+        mt[0] = int(s) & 0xFFFFFFFF
+        for i in range(1, 624):
+            mt[i] = (1812433253 * (mt[i - 1] ^ (mt[i - 1] >> 30)) + i) & 0xFFFFFFFF
+        self.mt, self.index = mt, 624
+
+    def _twist(self):
+        mt = self.mt
+        for i in range(624):
+            y = (mt[i] & 0x80000000) | (mt[(i + 1) % 624] & 0x7FFFFFFF)
+            v = mt[(i + 397) % 624] ^ (y >> 1)
+            if y & 1:
+                v ^= 0x9908B0DF
+            mt[i] = v
+        self.index = 0
+
+    def __call__(self) -> int:
+        if self.index >= 624:
+            self._twist()
+        y = self.mt[self.index]
+        self.index += 1
+        y ^= y >> 11
+        y ^= (y << 7) & 0x9D2C5680
+        y ^= (y << 15) & 0xEFC60000
+        y ^= y >> 18
+        return y & 0xFFFFFFFF
+
+
+#: ``globalRandomGenerator()``: Helios seeds it from ``std::random_device``; Heliades from a fixed value (an
+#: unseeded Helios run is not reproducible, so there is nothing to match until both sides are seeded).
+GLOBAL_GENERATOR = MT19937()
+
+
+def seed_global_random_generator(seed: int) -> None:
+    """``helios::seedRandomGenerator`` (PyHelios ``Global.seedRandomGenerator``)."""
+    GLOBAL_GENERATOR.seed(int(seed))
+
+
+def global_randu(imin=None, imax=None):
+    """``helios::randu()`` (float in [0,1)) and ``helios::randu(int imin, int imax)`` (inclusive; ``imin`` if
+    ``imin >= imax``), drawn from the process-wide generator."""
+    if imin is None:
+        return UniformReal(0.0, 1.0, "float")(GLOBAL_GENERATOR)
+    if int(imin) >= int(imax):
+        return int(imin)
+    return int(UniformInt(int(imin), int(imax))(GLOBAL_GENERATOR))

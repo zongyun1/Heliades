@@ -59,6 +59,12 @@ from heliades.parity.suites.plantarch import cases_nut_trees as _NT  # noqa: E40
 SLOW_CASES |= {n for n in CASES if n.split(".")[1] in _NT.MODELS
                and n not in {f"plantarch.{m}.params" for m in _NT.MODELS}
                and n not in {"plantarch.almond_wood_colony.age0", "plantarch.pistachio.age0"}}
+# W5-E fruit trees: likewise, keeping the parameter trees, the build-parameter checks and two age-0 builds fast
+from heliades.parity.suites.plantarch import cases_fruit_trees as _FT  # noqa: E402
+
+SLOW_CASES |= {n for n in CASES if n.split(".")[1] in _FT.MODELS
+               and n not in {f"plantarch.{m}.params" for m in _FT.MODELS}
+               and n not in {"plantarch.olive.age0", "plantarch.easternredbud.age0"}}
 
 
 @pytest.mark.parametrize("name", [pytest.param(n, marks=pytest.mark.slow) if n in SLOW_CASES else n

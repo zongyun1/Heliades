@@ -159,6 +159,51 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
     def primitive_texture_file(self, uuid: int) -> str:
         return self.primitives[uuid].texture_file or ""
 
+    # ---- color textures (W5-A, rice leaf texture stages; Context.cpp:3366-3436) ----
+    @ports("Context::validateColorTexture")
+    def validate_color_texture(self, shape_texture_file: str, color_texture_file: str):
+        """The color image must match the shape texture's resolution and transparency channel (checked once per pair)."""
+        done = self.__dict__.setdefault("_validated_color_textures", set())
+        if (shape_texture_file, color_texture_file) in done:
+            return
+        self.add_texture(shape_texture_file)
+        self.add_texture(color_texture_file)
+        shape, color = self.textures[shape_texture_file], self.textures[color_texture_file]
+        prefix = (f"ERROR (Context::validateColorTexture): The image '{color_texture_file}' cannot give color to primitives "
+                  f"whose shape comes from the texture '{shape_texture_file}' because ")
+        ss, cs = shape.get_image_resolution(), color.get_image_resolution()
+        if tuple(ss) != tuple(cs):
+            raise ValueError(prefix + f"their resolutions differ ({cs[0]}x{cs[1]} and {ss[0]}x{ss[1]}). Give it the same "
+                             "resolution.")
+        if shape.has_transparency() != color.has_transparency():
+            raise ValueError(prefix + "only one of them has a transparency channel. Save both in a format with the same "
+                             "transparency, for example PNG.")
+        if shape.has_transparency() and not np.array_equal(shape.transparency_data, color.transparency_data):
+            raise ValueError(prefix + "their transparency differs, so they have different outlines. Give it exactly the "
+                             "same transparency channel. To change a primitive's shape, change its texture instead.")
+        done.add((shape_texture_file, color_texture_file))
+
+    @ports("Context::setPrimitiveColorTexture")
+    def set_primitive_color_texture(self, uuids, color_texture_file: str):
+        """Stored on the primitive as ``color_texture_file`` ("" = none; copied with the primitive like Helios's
+        ``color_texture_ID``). Geometry, material and solid fraction are unchanged."""
+        uuids = [int(u) for u in (uuids if isinstance(uuids, (list, tuple, np.ndarray)) else [uuids])]
+        if color_texture_file:
+            for u in uuids:
+                shape = self.primitives[u].texture_file or ""
+                if not shape:
+                    raise ValueError(f"ERROR (Context::setPrimitiveColorTexture): Primitive {u} has no texture, so there is "
+                                     f"no shape for the image '{color_texture_file}' to match. Give the primitive a "
+                                     "texture, or use Context::setPrimitiveTextureFile() or a material to give it this "
+                                     "image as its texture.")
+                self.validate_color_texture(shape, color_texture_file)
+        for u in uuids:
+            self.primitives[u].color_texture_file = color_texture_file
+
+    @ports("Context::getPrimitiveColorTextureFile")
+    def primitive_color_texture_file(self, uuid: int) -> str:
+        return getattr(self.primitives[uuid], "color_texture_file", "") or self.primitive_texture_file(uuid)
+
     @ports("Context::getPrimitiveTextureUV")
     def primitive_texture_uv(self, uuid: int) -> np.ndarray:
         return self.primitives[uuid].texture_uv()

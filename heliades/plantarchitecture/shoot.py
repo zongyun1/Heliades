@@ -308,9 +308,35 @@ class Shoot:
 
     @staticmethod
     def _update_leaf_texture_stage(phytomer):
-        """Phytomer::updateLeafTextureStage (PA:4855): a no-op without texture stages and stage output."""
-        if len(phytomer.phytomer_parameters.leaf.prototype.leaf_texture_stage_ages) >= 2:
-            raise NotImplementedError("leaf texture stages are not ported")
+        """Phytomer::updateLeafTextureStage (PA:4855-4903): a no-op without texture stages and stage output. With stages
+        (W5-A, rice) each existing leaf's blade primitives get the stage image as their color texture ("" at stage 0).
+        ``leaf_texture_stage`` starts at 0 here, not at UINT_MAX: the first C++ call at stage 0 only clears a color
+        texture the fresh blades do not have, so skipping it is equivalent."""
+        prototype = phytomer.phytomer_parameters.leaf.prototype
+        ages = prototype.leaf_texture_stage_ages
+        if len(ages) < 2:
+            return
+        pa = phytomer.plantarchitecture_ptr
+        last_stage = len(ages) - 1
+        stage = max(prototype.getTextureStageAtAge(phytomer.age),
+                    min(int(pa.plant_instances[phytomer.plantID].minimum_leaf_texture_stage), last_stage))
+        if stage == phytomer.leaf_texture_stage:
+            return
+        phytomer.leaf_texture_stage = stage
+        from .leaf_prototype import resolveTextureFile
+        ctx = pa.context_ptr
+        for petiole, leaves in enumerate(phytomer.leaf_objIDs):
+            leaf_count = len(leaves)
+            for leaf, objID_leaf in enumerate(leaves):
+                if not ctx.does_object_exist(objID_leaf):
+                    continue
+                ind_from_tip = f32(f32(leaf) - f32(f32(leaf_count - 1) / f32(2)))
+                prototype_index = phytomer.leaf_prototype_index[petiole][leaf]
+                variant = prototype.getTextureSeriesVariant(int(ind_from_tip), prototype_index if prototype_index >= 0 else 0)
+                blade_texture = resolveTextureFile(variant[0])
+                blade_UUIDs = [u for u in ctx.object_primitive_uuids(objID_leaf)
+                               if ctx.primitive_texture_file(u) == blade_texture]
+                ctx.set_primitive_color_texture(blade_UUIDs, "" if stage == 0 else resolveTextureFile(variant[stage]))
 
     @ports("Shoot::propagateDownstreamLeafArea")
     def propagateDownstreamLeafArea(self, shoot, node_index: int, leaf_area):

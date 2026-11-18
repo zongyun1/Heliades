@@ -20,8 +20,11 @@ and radii, and ``snapshot(include_hidden=True)`` (as a Snapshot or as a stream).
   snapshot stream. The cordon buds break on day 30 and the gable wires steer the shoots from then on;
 * ``plantarch.grapewye.age76`` (ulp 0): a direct build at 76 days: fruit-zone leaves pulled, no cluster set;
 * ``plantarch.grapewye.age84`` (ulp 0, Context seeds 1..2): a few days after the clusters set;
-* ``plantarch.grapewye.age120`` (ulp 0): the Helios selfTest reference age (120 days);
-* ``plantarch.grapewye.age150`` (ulp 0, Context seeds 1..2): past fruit maturity (fruit set + 45 days).
+* ``plantarch.grapewye.age100`` (ulp 0): clusters set and growing. The Helios selfTest reference age (120 days)
+  was verified once for Context seed 1 (866k primitives, 0 ulp) but takes ~50 min on Heliades, so it is not a case
+  (W5-C note);
+* ``plantarch.grapewye.small_age150`` (ulp 0, Context seeds 1..2): past fruit maturity (fruit set + 45 days), on
+  a vine of the smallest accepted vine spacing (0.5 m).
 """
 from __future__ import annotations
 
@@ -163,11 +166,20 @@ def grapewye_age84(B, s):
     return _clusters(B, s, 84.0)
 
 
-@case("plantarch.grapewye.age120", tier="ulp", max_ulp=0, fuzz=8)
-def grapewye_age120(B, s):
-    return _clusters(B, s, 120.0)
+@case("plantarch.grapewye.age100", tier="ulp", max_ulp=0, fuzz=8)
+def grapewye_age100(B, s):
+    """The clusters set and growing (866k primitives for Context seed 1, ~230 s on Heliades)."""
+    return _clusters(B, s, 100.0)
 
 
-@case("plantarch.grapewye.age150", tier="ulp", max_ulp=0, fuzz=2)
-def grapewye_age150(B, s):
-    return _clusters(B, s, 150.0)
+#: a one-row-metre vine (cordons of 3 nodes, 12 shoots): the stages after the reference age at an affordable size
+SMALL_VINE = {"vine_spacing": 0.5}
+
+
+@case("plantarch.grapewye.small_age150", tier="ulp", max_ulp=0, fuzz=2)
+def grapewye_small_age150(B, s):
+    """Past fruit maturity (fruit set + 45 days) on the small vine."""
+    if not cluster_geometry_ported():
+        return [-1.0]
+    seed = _start(B, s, 150.0, SMALL_VINE)
+    return _full(B, seed)

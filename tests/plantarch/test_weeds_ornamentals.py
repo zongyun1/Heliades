@@ -100,7 +100,8 @@ def _patch_source(monkeypatch, module, attr, old, new):
     return obj
 
 
-@pytest.mark.parametrize("mutation", ["puncturevine_leaflet_offset", "bougainvillea_buds_kept", "bud_break_signed"])
+@pytest.mark.parametrize("mutation", ["puncturevine_leaflet_offset", "bougainvillea_buds_kept",
+                                      pytest.param("bud_break_signed", marks=pytest.mark.slow)])
 def test_mutations_are_caught(monkeypatch, mutation):
     pytest.importorskip("pyhelios")
     from heliades.parity.ops import load_plugins

@@ -39,6 +39,19 @@ SLOW_CASES = {
     "plantarchitecture.tomato.canopy", "plantarchitecture.tomato.canopy_state", "plantarchitecture.tomato.staggered",
     "plantarchitecture.tomato.staggered_state", "plantarchitecture.tomato.state",
     "plantarchitecture.tomato.two_plants", "plantarchitecture.tomato.two_plants_state",
+    # W5-B (herbaceous vegetables)
+    "plantarch.butterlettuce.age0_attrs", "plantarch.butterlettuce.age0_full", "plantarch.butterlettuce.ages",
+    "plantarch.butterlettuce.steps", "plantarch.sugarbeet.age0_attrs", "plantarch.sugarbeet.age0_full",
+    "plantarch.sugarbeet.ages", "plantarch.sugarbeet.steps", "plantarch.asparagus.ages", "plantarch.asparagus.steps",
+    "plantarch.cucumber.age0_attrs", "plantarch.cucumber.age0_full", "plantarch.cucumber.ages",
+    "plantarch.cucumber.steps", "plantarch.cucumber.bump_maps", "plantarch.cowpea.age0_attrs",
+    "plantarch.cowpea.age0_full", "plantarch.cowpea.ages", "plantarch.cowpea.steps",
+    # W5-C
+    *(f"plantarch.{m}.{c}" for m in ("bindweed", "cheeseweed", "groundcherryweed", "puncturevine", "bougainvillea")
+      for c in ("steps", "ages")),
+    "plantarch.puncturevine.ages_late", "plantarch.grapewye.load", "plantarch.grapewye.age0",
+    "plantarch.grapewye.age0_build_parameters", "plantarch.grapewye.steps", "plantarch.grapewye.age76",
+    "plantarch.grapewye.age84", "plantarch.grapewye.age100", "plantarch.grapewye.small_age150",
 }
 
 

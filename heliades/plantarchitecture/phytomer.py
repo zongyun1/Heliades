@@ -1624,7 +1624,17 @@ class Phytomer:
             ctx.translate_object(oid, f32(-1) * self.leaf_bases[p][leaf])
             ctx.scale_object(oid, (delta_scale, delta_scale, delta_scale))
             if pose_prescribed:
-                raise NotImplementedError("prescribed leaf poses (setPetioleLeafGeometry) are not ported")
+                # W5-B (PA:4490-4512): the leaf keeps its offset from the nearest point of the centerline as it stood
+                # before this step, carried to the rescaled centerline (a leaf steered by setLeafNormal is prescribed)
+                from .leaf_angle_tracking import nearestPointOnPolyline
+                petiole_base = pv[0].copy()
+                previous_centerline = [petiole_base + V.div(np.asarray(v, f32) - petiole_base, petiole_delta_scale)
+                                       for v in pv]
+                previous_nearest = nearestPointOnPolyline(previous_centerline, self.leaf_bases[p][leaf])
+                offset_from_centerline = np.asarray(self.leaf_bases[p][leaf], f32) - previous_nearest
+                prescribed_base = (petiole_base + (previous_nearest - petiole_base) * petiole_delta_scale) + offset_from_centerline
+                ctx.translate_object(oid, prescribed_base)
+                self.leaf_bases[p][leaf] = np.asarray(prescribed_base, f32).copy()
             elif ind_from_tip == 0:
                 ctx.translate_object(oid, pv[-1])
                 self.leaf_bases[p][leaf] = pv[-1].copy()

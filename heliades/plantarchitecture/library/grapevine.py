@@ -631,18 +631,25 @@ def _grapevine_fruit_prototype(context_ptr, subdivisions, build_parameters=None)
             with np.errstate(divide="ignore", invalid="ignore"):
                 s = (f32(0.5) * overlap) / dist
                 P = S * s[..., None]
-            mask = (upper & (overlap > 0) & (dist > 0))[..., None]
+            m2 = upper & (overlap > 0) & (dist > 0)
+            mask = m2[..., None]
             # disp_k -= push(i, k) for i ascending (k > i), then disp_k += push(k, j) for j ascending (k < j),
             # as running float32 sums (ufunc.accumulate is strictly sequential along the axis). Pairs that do
             # not push contribute an exact no-op: subtracting +0 and adding -0 leave every float (and the sign
-            # of a zero) unchanged.
-            acc = np.empty((n + 1, n, 3), f32)
-            acc[0] = 0
-            acc[1:] = np.where(mask, P, f32(0))                     # [i, k]
-            disp = np.subtract.accumulate(acc, axis=0)[-1]
-            acc[0] = disp
-            acc[1:] = np.where(mask, P, f32(-0.0)).transpose(1, 0, 2)  # [j, k]
-            disp = np.add.accumulate(acc, axis=0)[-1]
+            # of a zero) unchanged, so rows / columns without any push are left out altogether.
+            rows = np.flatnonzero(m2.any(1))
+            cols = np.flatnonzero(m2.any(0))
+            disp = np.zeros((n, 3), f32)
+            if len(rows):
+                acc = np.empty((len(rows) + 1, n, 3), f32)
+                acc[0] = disp
+                acc[1:] = np.where(mask[rows], P[rows], f32(0))                 # [i, k]
+                disp = np.subtract.accumulate(acc, axis=0)[-1]
+            if len(cols):
+                acc = np.empty((len(cols) + 1, n, 3), f32)
+                acc[0] = disp
+                acc[1:] = np.where(mask[:, cols], P[:, cols], f32(-0.0)).transpose(1, 0, 2)   # [j, k]
+                disp = np.add.accumulate(acc, axis=0)[-1]
             C = C + disp
         cx = C[:, 0]
         cx = np.where(cx < radii, radii, np.where(cx > x_hi, x_hi, cx))

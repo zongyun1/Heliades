@@ -174,3 +174,17 @@ Fast suite: 390 passed, 172 skipped. Spot-checked existing slow cases `grape.age
 7. The shadow grid is rebuilt every sub-step the leaf count changes, but only its season-peak copy is ever read
    (by growth priority; apple's light thinning) — wasted work in Helios; Heliades builds it lazily with the same
    values.
+
+## Merges with main (W5-B at da79939, W5-C at b82ae90)
+
+* `leaf_angle_tracking.py` was ported independently by W5-B (cowpea) and here (pistachio). **W5-B's implementation
+  is kept** (it is the more complete: `disablePlantLeafAngleDistributionTracking`, `setLeafNormal` without a
+  measured normal, `nearestPointOnPolyline`); mine is dropped. Pistachio matches at 0 ulp with it unchanged.
+* `architecture.py`, `growth.py` (cohort + update), `phytomer.py` (prescribed-leaf branch): W5-B's hunks, plus my
+  `flushDeferredPrunes` before the tracker update. My duplicate `_nearest_point_on_polyline` was removed.
+* `xml_io.py`: my `<plant_model>`/`<build_parameter>` writer + W5-B's leaf-Beta and posed-leaf writers.
+* W5-C's `sampleVegetativeBudBreak` uint-wrap fix affects positive decay rates, which every tree model uses: all 58
+  nut-tree cases were re-run after the merge and pass. W5-C's 365-day season-boundary raise is replaced by
+  `seasons.season_boundary` (grapewye load/params/build_parameters/age0/age0_build_parameters/steps/age76 pass).
+* Test fix: the pistachio roll mutation re-executes pistachio.py, whose decorators rebound the shared hooks; it now
+  restores them (it made the tip-length mutation order-dependent).

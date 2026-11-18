@@ -153,7 +153,12 @@ def test_mutations_are_caught(monkeypatch, mutation):
                "        roll = ctx.randu(f32(0), f32(f32(2) * PI_F))\n")
         assert src.count(old) == 1 and orig is not None
         ns = dict(PI.__dict__)
+        hooks = (PI.PistachioFruitPrototype, PI.PistachioFlowerPrototype, PI.PistachioPhytomerCreationFunction,
+                 PI.PistachioPhytomerCallbackFunction)
+        bound = [h.impl for h in hooks]
         exec(compile(src.replace(old, new), PI.__file__, "exec"), ns)
+        for h, impl in zip(hooks, bound):            # the re-executed decorators rebind the shared hooks: undo
+            h.impl = impl
         from heliades.plantarchitecture import library as L
         monkeypatch.setitem(L.PLANT_BUILDERS, "pistachio", ns["buildPistachioTree"])
         assert _fails("plantarch.pistachio.age0")

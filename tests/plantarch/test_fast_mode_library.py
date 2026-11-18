@@ -34,18 +34,29 @@ DIVERGENT = ORIENTATION_DIVERGENT | TOPOLOGY_DIVERGENT
 REL_LIMIT = 1e-3
 
 
-@pytest.mark.slow
-@pytest.mark.parametrize("seed", range(1, 9))
-@pytest.mark.parametrize("model", sorted(AGES))
-def test_fast_mode_against_exact(model, seed):
+def _check_job(job):
     from heliades.parity.fastmode import check
-    r = check(model, AGES[model], seed)
-    assert r["draws"], r
-    if model in TOPOLOGY_DIVERGENT:
-        return
-    assert r["topology"], r
-    if model not in ORIENTATION_DIVERGENT:
-        assert r["rel_dev"] < REL_LIMIT, r
+    return check(*job)
+
+
+def _pool():
+    import multiprocessing as mp
+    return mp.get_context("spawn").Pool(min(6, os.cpu_count() or 1), maxtasksperchild=1)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("model", sorted(AGES))
+def test_fast_mode_against_exact(model):
+    """Seeds 1..8 (built on up to 6 processes)."""
+    with _pool() as pool:
+        res = pool.map(_check_job, [(model, AGES[model], s) for s in range(1, 9)])
+    for r in res:
+        assert r["draws"], r
+        if model in TOPOLOGY_DIVERGENT:
+            continue
+        assert r["topology"], r
+        if model not in ORIENTATION_DIVERGENT:
+            assert r["rel_dev"] < REL_LIMIT, r
 
 
 def _metrics_job(job):
@@ -61,10 +72,9 @@ def _metrics_job(job):
 @pytest.mark.slow
 @pytest.mark.parametrize("model", sorted(DIVERGENT))
 def test_divergent_model_distributions(model):
-    import multiprocessing as mp
     from heliades.parity.compare import compare_distributions
     jobs = [(model, AGES[model], s) for s in range(1, 33)]
-    with mp.get_context("spawn").Pool(min(6, os.cpu_count() or 1), maxtasksperchild=1) as pool:
+    with _pool() as pool:
         res = pool.map(_metrics_job, jobs)
     for r in res:
         # the draw stream only parts when a geometry-reading decision flipped and changed the plant (pistachio seed 19:

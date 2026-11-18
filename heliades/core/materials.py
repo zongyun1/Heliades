@@ -24,7 +24,7 @@ on a copy whose material has the override), and the iteration order of Helios's 
 (``UnorderedUIntMapOrder``). That order gives ``getPrimitivesUsingMaterial`` its order, and gives the
 users of a re-textured material the order in which their solid fractions are computed. The
 solid-fraction cache makes that second order observable. ``listMaterials`` is bytewise sorted, as
-Helios's ``std::map`` is. Not covered: normal/bump maps, material data, color textures, spectral
+Helios's ``std::map`` is. Normal and bump maps are carried by the material (labels, copies, setPrimitiveBumpMap; the images are not decoded). Not covered: material data, color textures, spectral
 textures and the revision counters.
 """
 from __future__ import annotations
@@ -39,6 +39,8 @@ from ..migration_registry import ports
 f32 = np.float32
 
 DEFAULT_MATERIAL_LABEL = "__default__"
+# helios::NormalMapKind (global.h:988-992)
+NORMAL_MAP_NONE, NORMAL_MAP_TANGENT_SPACE, NORMAL_MAP_BUMP = 0, 1, 2
 _M64 = (1 << 64) - 1
 _MUL = (0xC6A4A793 << 32) + 0x5BD1E995
 _SEED = 0xC70F6907
@@ -71,13 +73,18 @@ def _hash_float(x) -> int:
 
 
 @ports("Context::generateMaterialLabel")
-def generate_material_label(color, texture_file: str = "", texture_override: bool = False) -> str:
+def generate_material_label(color, texture_file: str = "", texture_override: bool = False, normal_map=None) -> str:
     """``"__auto_" + std::to_string(hash)`` of (r, g, b, a, texture, override), combined with the
-    boost-style ``hash ^= h + 0x9e3779b9 + (hash << 6) + (hash >> 2)`` (no normal map)."""
+    boost-style ``hash ^= h + 0x9e3779b9 + (hash << 6) + (hash >> 2)``. A normal map ``(file, kind, strength,
+    flip_green)`` with ``kind != NORMAL_MAP_NONE`` hashes its four fields too (Context.cpp:4159-4176)."""
     h = 0
     c = np.asarray(color, f32)
-    for v in (_hash_float(c[0]), _hash_float(c[1]), _hash_float(c[2]), _hash_float(c[3]),
-              hash_bytes(texture_file.encode("utf-8")), int(bool(texture_override))):
+    terms = [_hash_float(c[0]), _hash_float(c[1]), _hash_float(c[2]), _hash_float(c[3]),
+             hash_bytes(texture_file.encode("utf-8")), int(bool(texture_override))]
+    if normal_map is not None and int(normal_map[1]) != NORMAL_MAP_NONE:
+        nfile, nkind, nstrength, nflip = normal_map
+        terms += [hash_bytes(nfile.encode("utf-8")), int(nkind), _hash_float(nstrength), int(bool(nflip))]
+    for v in terms:
         h ^= (v + 0x9E3779B9 + ((h << 6) & _M64) + (h >> 2)) & _M64
     return "__auto_" + str(h)
 
@@ -104,6 +111,18 @@ class Material:
     texture_color_overridden: bool = False
     twosided_flag: int = 1
     reference_count: int = 0
+    normal_map_file: str = ""
+    normal_map_kind: int = NORMAL_MAP_NONE
+    normal_map_strength: np.float32 = f32(1)
+    normal_map_flip_green: bool = False
+
+    def normal_map(self):
+        """The material's (file, kind, strength, flip_green), as MaterialAppearance carries it."""
+        return (self.normal_map_file, self.normal_map_kind, f32(self.normal_map_strength), self.normal_map_flip_green)
+
+    def set_normal_map(self, nm):
+        self.normal_map_file, self.normal_map_kind, self.normal_map_strength, self.normal_map_flip_green = (
+            nm[0], int(nm[1]), f32(nm[2]), bool(nm[3]))
 
 
 def _uuid_list(x) -> list[int]:
@@ -371,21 +390,30 @@ class MaterialsMixin:
         new = self._add_material_internal(f"__copy_{self.current_material_id}_{p.uuid}", old.color, old.texture_file)
         m = self.materials[new]
         m.texture_color_overridden, m.twosided_flag = old.texture_color_overridden, old.twosided_flag
+        m.set_normal_map(old.normal_map())
         old.reference_count -= 1
         m.reference_count = 1
         p.material_id = new
         return new
 
     @ports("Context::setPrimitiveAppearance")
-    def _set_primitive_appearance(self, p, color, texture: str, override: bool):
+    def _set_primitive_appearance(self, p, color, texture: str, override: bool, normal_map=None):
+        """``normal_map`` = (file, kind, strength, flip_green) of the new appearance; None keeps the current
+        material's (the appearance is ``getMaterialAppearance(current)`` with color / texture / override replaced)."""
         cur = self.materials[self._primitive_material_id(p)]
+        if normal_map is None:
+            normal_map = cur.normal_map()
         automatic = cur.label.startswith("__auto_") or cur.label == DEFAULT_MATERIAL_LABEL
         if automatic:                 # (material data is not modelled, so an automatic material carries none)
-            lbl = self._auto_label(color, texture, override)
+            if int(normal_map[1]) == NORMAL_MAP_NONE:
+                lbl = self._auto_label(color, texture, override)
+            else:
+                lbl = generate_material_label(_rgba(color), texture, override, normal_map)
             i = self.material_label_to_id.get(lbl)
             if i is None:
                 i = self._add_material_internal(lbl, color, texture)
                 self.materials[i].texture_color_overridden = bool(override)
+                self.materials[i].set_normal_map(normal_map)
             self._set_primitive_material(p, i)
             return
         if p.material_id in self.materials_renamed_from_automatic or cur.reference_count > 1:
@@ -393,6 +421,7 @@ class MaterialsMixin:
         m = self.materials[p.material_id]
         texture_changed = m.texture_file != texture
         m.color, m.texture_file, m.texture_color_overridden = _rgba(color), texture, bool(override)
+        m.set_normal_map(normal_map)
         self._sync_appearance(p)
         if texture_changed:
             self._update_solid_fraction(p)
@@ -580,6 +609,52 @@ class MaterialsMixin:
                 raise ValueError(f"ERROR (Context::setPrimitiveColor): UUID of {u} does not exist in the Context.")
             m = self.materials[self._primitive_material_id(p)]
             self._set_primitive_appearance(p, _rgba(color), m.texture_file, m.texture_color_overridden)
+
+    @ports("Context::setPrimitiveBumpMap(uint,const std::string&,float)",
+           "Context::setPrimitiveBumpMap(const std::vector<uint>&,const std::string&,float)")
+    def set_primitive_bump_map(self, uuids, bump_map_file: str, strength):
+        """Context.cpp:3476-3492 (W5-B): the primitives' appearance with a bump map. Everything is checked before
+        anything changes. The image is only checked to exist (Helios decodes it into its normal-map cache,
+        which nothing in Heliades reads)."""
+        import math
+        import os
+        strength = f32(strength)
+        if not math.isfinite(float(strength)) or strength <= 0:
+            raise ValueError(f"ERROR (Context::setPrimitiveBumpMap): The strength must be a finite value greater than zero, "
+                             f"but {float(strength):f} was given. To remove a map, clear it instead.")
+        if not os.path.isfile(bump_map_file):
+            raise ValueError(f"ERROR (Context::setPrimitiveBumpMap): Normal or bump map file '{bump_map_file}' does not exist.")
+        from .primitives import PATCH, TRIANGLE
+        prims = []
+        for u in _uuid_list(uuids):
+            p = self.primitives.get(u)
+            if p is None:
+                raise ValueError(f"ERROR (Context::setPrimitiveBumpMap): UUID of {u} does not exist in the Context.")
+            if not (p.type == PATCH or (p.type == TRIANGLE and len(p.texture_uv()) > 0)):     # validateNormalMapFrame
+                kind = "a voxel" if p.type not in (PATCH, TRIANGLE) else "a triangle without texture (u,v) coordinates"
+                raise ValueError(f"ERROR (Context::setPrimitiveBumpMap): Primitive {u} is {kind}, so it has no (u,v) frame "
+                                 f"on which to apply the normal or bump map '{bump_map_file}'.")
+            prims.append(p)
+        for p in prims:
+            m = self.materials[self._primitive_material_id(p)]
+            self._set_primitive_appearance(p, m.color, m.texture_file, m.texture_color_overridden,
+                                           (bump_map_file, NORMAL_MAP_BUMP, strength, False))
+
+    @ports("Context::getPrimitiveNormalMapFile")
+    def get_primitive_normal_map_file(self, uuid: int) -> str:
+        return self.materials[self._primitive_material_id(self.primitives[int(uuid)])].normal_map_file
+
+    @ports("Context::getMaterialNormalMapFile")
+    def get_material_normal_map_file(self, label: str) -> str:
+        return self.materials[self._material_id(label)].normal_map_file
+
+    @ports("Context::getMaterialNormalMapKind")
+    def get_material_normal_map_kind(self, label: str) -> int:
+        return self.materials[self._material_id(label)].normal_map_kind
+
+    @ports("Context::getMaterialNormalMapStrength")
+    def get_material_normal_map_strength(self, label: str):
+        return f32(self.materials[self._material_id(label)].normal_map_strength)
 
     @ports("Context::overridePrimitiveTextureColor(uint)", "Context::overridePrimitiveTextureColor(const std::vector<uint>&)",
            "Primitive::overrideTextureColor")

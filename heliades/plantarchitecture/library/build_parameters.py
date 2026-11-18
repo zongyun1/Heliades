@@ -312,3 +312,5 @@ def register_build_parameters(pa):
     """The ``registerPlantModelBuildParameters`` calls of PL:511-535 for the models ported to Heliades."""
     from . import grapevine
     grapevine.register_build_parameters(pa)
+    from . import cereals_registry           # W5-A: maize, rice, sorghum, wheat
+    cereals_registry.register_build_parameters(pa)

@@ -62,6 +62,12 @@ def sinf(x) -> np.float32:
     return f32(_M["sinf"](float(f32(x))))
 
 
+def _map_f32(fn, a: np.ndarray) -> np.ndarray:
+    """glibc float function ``fn`` applied to each element of a float32 array (one C call per element; the
+    arguments are float32 values, so passing them as Python floats is exact)."""
+    return np.array([fn(x) for x in a.tolist()], f32)
+
+
 def cosf(x) -> np.float32:
     return f32(_M["cosf"](float(f32(x))))
 
@@ -237,6 +243,8 @@ def deformLeafLattice(rest_vertices, Nx: int, Ny: int, scale, mature_scale, flex
     half_mass = np.array([f32(m * f32(0.5)) for m in seg_mass], f32)
     local_compliance = [f32(0)] + [f32(compliance * powf(taper_floor, f32(f32(i) / f32(Nx)))) for i in range(1, n1)]
     step_ds = np.array([f32(ds[i] * scale) for i in range(n1)], f32)
+    lc_neg = np.array([-c for c in local_compliance], f32)
+    ds_arr = np.array(ds, f32)
     zero = f32(0)
 
     theta = np.array(theta_rest, f32)
@@ -245,8 +253,8 @@ def deformLeafLattice(rest_vertices, Nx: int, Ny: int, scale, mature_scale, flex
     unbalanced = f32(0)
 
     def integrate():
-        cs = np.array([cosf(t) for t in theta[1:]], f32)
-        sn = np.array([sinf(t) for t in theta[1:]], f32)
+        cs = _map_f32(_M["cosf"], theta[1:])
+        sn = _map_f32(_M["sinf"], theta[1:])
         d = np.empty((Nx, 3), f32)                 # cosf(theta) * heading + (0, 0, sinf(theta))
         d[:, 0] = cs * H[1:, 0] + zero
         d[:, 1] = cs * H[1:, 1] + zero
@@ -270,27 +278,28 @@ def deformLeafLattice(rest_vertices, Nx: int, Ny: int, scale, mature_scale, flex
         terms[1::2] = (distal_arr * arm)[::-1]
         terms[2::2] = (half_mass * arm)[::-1]
         run = np.add.accumulate(terms)
-        moment = list(run[2 * Nx::-2])             # moment[0..Nx]
+        moment = run[2 * Nx::-2]                   # moment[0..Nx]
+        # curvature = -local_compliance * moment; bend increment = (curvature * ds) * scale, per station
+        inc = ((lc_neg[1:] * moment[1:]) * ds_arr[1:]) * scale
         accumulated_bend = f32(0)
-        residual = f32(0)
-        largest_bend = f32(0)
-        th = list(theta)
-        theta_balanced = list(theta_rest)
-        for i in range(1, n1):
-            curvature = f32(-local_compliance[i] * moment[i])
-            accumulated_bend = f32(accumulated_bend + f32(f32(curvature * ds[i]) * scale))
-            b = f32(theta_rest[i] + accumulated_bend)
+        balanced_list = []
+        for i, d_ in zip(range(1, n1), list(inc)):   # the clamp makes this running sum sequential
+            accumulated_bend = accumulated_bend + d_
+            b = theta_rest[i] + accumulated_bend
             lo, hi = turn_floor[i], turn_ceiling[i]
             balanced = lo if b < lo else (hi if hi < b else b)          # std::clamp
-            accumulated_bend = f32(balanced - theta_rest[i])
-            residual = max(residual, abs(f32(balanced - th[i])))
-            largest_bend = max(largest_bend, abs(accumulated_bend))
-            theta_balanced[i] = balanced
+            accumulated_bend = balanced - theta_rest[i]
+            balanced_list.append(balanced)
+        tb = np.array(balanced_list, f32)
+        # residual = max(residual, |balanced - theta|), largest_bend = max(.., |accumulated_bend|), from 0 (NaN ignored)
+        r = np.abs(tb - theta[1:])
+        residual = f32(np.where(np.isnan(r), f32(0), r).max(initial=f32(0)))
+        lb = np.abs(tb - theta_rest_arr[1:])
+        largest_bend = f32(np.where(np.isnan(lb), f32(0), lb).max(initial=f32(0)))
         unbalanced = residual
         if residual <= f32(converged_fraction * largest_bend):
             break
-        tb = np.array(theta_balanced, f32)
-        theta[1:] = theta[1:] + step * (tb[1:] - theta[1:])
+        theta[1:] = theta[1:] + step * (tb - theta[1:])
         theta[0] = theta_rest[0]
     if unbalanced > unconverged_limit:
         raise PlantArchitectureError(f"ERROR (deformLeafLattice): The blade did not settle under its own weight within "
@@ -300,8 +309,8 @@ def deformLeafLattice(rest_vertices, Nx: int, Ny: int, scale, mature_scale, flex
     deflected = integrate()
 
     turn = theta - theta_rest_arr
-    ct = np.array([cosf(t) for t in turn], f32)[None, :]
-    st = np.array([sinf(t) for t in turn], f32)[None, :]
+    ct = _map_f32(_M["cosf"], turn)[None, :]
+    st = _map_f32(_M["sinf"], turn)[None, :]
     R = rest.reshape(Ny + 1, n1, 3)                # [j, i]
     off = (R - M0[None]) * scale
     h0, h1, h2 = H[None, :, 0], H[None, :, 1], H[None, :, 2]

@@ -31,11 +31,28 @@ f32 = np.float32
 
 
 class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin, ObjectTransformsMixin, FileIOMixin):
-    """Geometry + data container (helios::Context counterpart)."""
+    """Geometry + data container (helios::Context counterpart).
 
-    def __init__(self):
-        self._store = PrimitiveStore()
-        self.primitives = PrimitiveMap(self._store)       # dict-like UUID -> Primitive (a view of the store row)
+    ``Scene()`` / ``Scene(mode="exact")`` is the bit-exact port of Helios. ``Scene(mode="fast")`` returns a
+    :class:`heliades.core.fast.FastScene`: the same API and the same random draws, but object transforms and
+    tube rebuilds are deferred and composed, so geometry is only float32-close to Helios
+    (``docs/core/FAST_MODE.md``)."""
+
+    mode = "exact"
+    _store_cls = PrimitiveStore
+    _map_cls = PrimitiveMap
+
+    def __new__(cls, mode: str = "exact"):
+        if mode not in ("exact", "fast"):
+            raise ValueError(f"Scene: mode must be 'exact' or 'fast', not {mode!r}")
+        if mode == "fast" and cls.mode != "fast":
+            from .fast import FastScene
+            cls = FastScene
+        return super().__new__(cls)
+
+    def __init__(self, mode: str = "exact"):
+        self._store = self._store_cls()
+        self.primitives = self._map_cls(self._store)       # dict-like UUID -> Primitive (a view of the store row)
         self.current_uuid = 0
         self.objects: dict[int, CompoundObject] = {}
         self.current_object_id = 1  # object ID 0 is reserved for "no parent object"

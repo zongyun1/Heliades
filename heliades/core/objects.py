@@ -59,6 +59,10 @@ class CompoundObject:
 
 
 class ObjectsMixin:
+    def _tube_ring_list(self, nr: int, nodes, radius):
+        """The vertex rings of a new tube (``_tube_rings``; fast mode overrides it)."""
+        return _tube_rings(nr, nodes, radius)
+
     def _register_object(self, otype: int, uuids: list[int], **kw) -> int:
         oid = self.current_object_id
         for u in uuids:
@@ -110,7 +114,7 @@ class ObjectsMixin:
         if n != len(colors):
             raise ValueError("addTubeObject: nodes and color must agree in size")
         nr = int(radial_subdivisions)
-        ring = _tube_rings(nr, nodes, radius)
+        ring = self._tube_ring_list(nr, nodes, radius)
         uuids = []
         for j in range(nr):
             for i in range(n - 1):
@@ -200,7 +204,7 @@ class ObjectsMixin:
         if n != len(ufrac):
             raise ValueError("addTubeObject: nodes and textureuv_ufrac must agree in size")
         nr = int(radial_subdivisions)
-        ring = _tube_rings(nr, nodes, radius)
+        ring = self._tube_ring_list(nr, nodes, radius)
         uvv = [f32(j) / f32(nr) for j in range(nr + 1)]
 
         def uv(i, j):

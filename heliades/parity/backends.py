@@ -28,9 +28,9 @@ class _OpsDispatch:
 class ForgeBackend(_OpsDispatch):
     name = "heliades"
 
-    def __init__(self):
+    def __init__(self, mode: str = "exact"):
         from ..core.scene import Scene
-        self.scene = Scene()
+        self.scene = Scene(mode=mode)
 
     def seed(self, s):
         self.scene.seed_random_generator(s)

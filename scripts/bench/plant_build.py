@@ -3,6 +3,7 @@
 whole-scene snapshot (hidden geometry included) so two runs can be compared bit for bit.
 
     python scripts/bench/plant_build.py heliades tomato 120 --seed 1 [--save out.npz] [--profile out.prof]
+    python scripts/bench/plant_build.py heliades tomato 120 --mode fast
     python scripts/bench/plant_build.py helios grapevine_VSP 120
     python scripts/bench/plant_build.py compare a.npz b.npz
 
@@ -60,13 +61,14 @@ def main():
     ap.add_argument("model")
     ap.add_argument("age", type=float)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--mode", choices=("exact", "fast"), default="exact", help="Heliades Scene mode")
     ap.add_argument("--save")
     ap.add_argument("--profile")
     ap.add_argument("--bp", action="append", default=[], help="build parameter key=value (float), repeatable")
     ap.add_argument("--attrs", action="store_true", help="also save materials and data (pa_accept_attrs stream)")
     a = ap.parse_args()
     from heliades.parity.backends import ForgeBackend, HeliosBackend
-    B = ForgeBackend() if a.backend == "heliades" else HeliosBackend()
+    B = ForgeBackend(a.mode) if a.backend == "heliades" else HeliosBackend()
     B.seed(a.seed)
     B.plantarch_new()
     t0 = time.perf_counter()
@@ -100,7 +102,8 @@ def main():
     t3 = time.perf_counter()
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
     n = B.scene.primitive_count() if a.backend == "heliades" else B.ctx.getPrimitiveCount()
-    print(f"{a.backend} {a.model} age={a.age:g} seed={a.seed}: load {t1 - t0:.2f}s build {t2 - t1:.2f}s"
+    tag = f"{a.backend}[{a.mode}]" if a.backend == "heliades" else a.backend
+    print(f"{tag} {a.model} age={a.age:g} seed={a.seed}: load {t1 - t0:.2f}s build {t2 - t1:.2f}s"
           f" snapshot {t3 - t2:.2f}s prims {n} peakRSS {rss:.0f}MB", flush=True)
     if a.save:
         _save(snap, a.save, attrs)

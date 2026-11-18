@@ -63,7 +63,8 @@ all member rows** instead of one Python call per primitive:
   `add_triangles(v0, v1, v2, color)`; tube triangle rebuilds (`setTubeNodes/Radii`, `appendTubeSegment`)
   rebuild all member triangles in one `triangle_transform_rows`.
 
-**Why not lazy (deferred) transforms?** Deferring would only pay if consecutive operations could be
+**Why not lazy (deferred) transforms?** (In exact mode. Fast mode, `Scene(mode="fast")`, does defer and compose them,
+giving up bit-exactness: `docs/core/FAST_MODE.md`.) Deferring would only pay if consecutive operations could be
 merged, and they cannot: `(M + s1) + s2 != M + (s1 + s2)` in float32, and `T2*(T1*M) != (T2*T1)*M`. Every
 primitive matrix must see every operation, in order, with its own rounding, so a deferred queue performs
 the same arithmetic later. The only saving would be fewer numpy calls by batching queued operations across

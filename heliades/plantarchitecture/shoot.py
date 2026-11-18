@@ -188,7 +188,10 @@ class Shoot:
         if not sp.growth_requires_dormancy and decay < 0:
             p = pmin
         elif decay > 0:
-            p = max(pmin, f32(pmax - f32(decay * f32(self.current_node_number - node_index - 1))))   # std::fmax(float, float)
+            # std::fmax(float, float). current_node_number and node_index are uint: a phytomer sampled as it is
+            # appended has node_index == current_node_number (W5-C), so the difference wraps to 2^32 - 1 and p = pmin.
+            nodes_above = (self.current_node_number - int(node_index) - 1) % (1 << 32)
+            p = max(pmin, f32(pmax - f32(decay * f32(nodes_above))))
         elif decay < 0:
             # fabs() (C, double) promotes the right-hand side to double; fmax(float, double) -> double -> float
             p = f32(max(float(pmin), float(pmax) - abs(float(decay)) * float(f32(node_index))))
@@ -780,6 +783,31 @@ def removeShootLeaves(pa, plantID, shootID):
                                      "exist.")
     for phytomer in tree[shootID].phytomers:
         phytomer.removeLeaf()
+
+
+def _shoot_or_raise(pa, plantID, shootID, fn):
+    if plantID not in pa.plant_instances:
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::{fn}): Plant with ID of {plantID} does not exist.")
+    tree = pa.plant_instances[plantID].shoot_tree
+    if shootID >= len(tree):
+        raise PlantArchitectureError(f"ERROR (PlantArchitecture::{fn}): Shoot with ID of {shootID} does not exist.")
+    return tree[shootID]
+
+
+@ports("PlantArchitecture::removeShootVegetativeBuds")
+def removeShootVegetativeBuds(pa, plantID, shootID):
+    """PA:10014-10028 (W5-C)."""
+    from .params import BUD_DEAD
+    for phytomer in _shoot_or_raise(pa, plantID, shootID, "removeShootVegetativeBuds").phytomers:
+        phytomer.setVegetativeBudState(BUD_DEAD)
+
+
+@ports("PlantArchitecture::removeShootFloralBuds")
+def removeShootFloralBuds(pa, plantID, shootID):
+    """PA:10030-10044 (W5-C)."""
+    from .params import BUD_DEAD
+    for phytomer in _shoot_or_raise(pa, plantID, shootID, "removeShootFloralBuds").phytomers:
+        phytomer.setFloralBudState(BUD_DEAD)
 
 
 @ports("PlantArchitecture::setPlantAttractionPoints")

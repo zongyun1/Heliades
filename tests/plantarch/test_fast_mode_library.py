@@ -86,3 +86,14 @@ def test_divergent_model_distributions(model):
     b = {k: np.array([r["fast"][0][k] for r in res]) for k in keys}
     rep = compare_distributions(b, a)
     assert rep.ok, rep.checks
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("seed", [1, 2])
+def test_moving_a_tree_in_fast_mode(seed):
+    """parity case plantarch.move.almond in fast mode: move at 300 d, grow 440 d (a dormancy cycle with the shadow
+    grid at the moved origin), move back; deferred transforms must follow the plant."""
+    from heliades.parity.fastmode import check
+    r = check("almond", 300, seed, move=(1.53, -0.71, 0.0), grow_after=440)
+    assert r["draws"] and r["topology"], r
+    assert r["rel_dev"] < REL_LIMIT, r

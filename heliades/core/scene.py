@@ -64,11 +64,7 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
 
     # ---- primitives ----
     def _new(self, ptype, transform, color, automatic_material: bool = True) -> int:
-        c = np.ones(4, f32)
-        if color is not None:
-            c[: len(color)] = color
-        else:
-            c[:3] = 0
+        c = _color_rgba(color)
         u = self.current_uuid
         self._store.add(u, ptype, transform, c)
         self.primitive_order.insert(u)
@@ -99,11 +95,7 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
             return []
         if len(v1) != n or len(v2) != n:
             raise ValueError("add_triangles: v0, v1 and v2 must have the same length")
-        c = np.ones(4, f32)
-        if color is not None:
-            c[: len(color)] = color
-        else:
-            c[:3] = 0
+        c = _color_rgba(color)
         u0 = self.current_uuid
         rows = self._store.add_rows(u0, TRIANGLE, triangle_transform_rows(v0, v1, v2), c)
         for u in range(u0, u0 + n):
@@ -433,6 +425,17 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
 
 def _ids(x) -> list[int]:
     return [int(x)] if np.isscalar(x) else [int(i) for i in x]
+
+
+def _color_rgba(color) -> np.ndarray:
+    """The primitive color as Helios stores it: RGB(A) float32 (alpha 1 when not given, black when None), every channel
+    clamped as the RGBcolor / RGBAcolor constructors do (``v < 0 ? 0 : v > 1 ? 1 : v``: -0 and NaN pass through)."""
+    c = np.ones(4, f32)
+    if color is not None:
+        c[: len(color)] = color
+    else:
+        c[:3] = 0
+    return np.where(c < 0, f32(0), np.where(c > 1, f32(1), c)).astype(f32)
 
 
 def _placed_patch_matrix(size, rotation, center, T=None) -> np.ndarray:

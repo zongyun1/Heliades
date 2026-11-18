@@ -57,8 +57,10 @@ def plant_structure_xml(pa, plantID: int) -> str:
     w(f"\t\t<max_age> {cout(inst.max_age)} </max_age>")
     if inst.build_parameters or inst.organ_build_parameters:
         raise NotImplementedError("writing build parameters is not ported")
-    if getattr(inst, "leaf_angle_tracking_enabled", False):
-        raise NotImplementedError("writing leaf-angle tracking is not ported")
+    if getattr(inst, "leaf_angle_tracking_enabled", False) and inst.leaf_angle_tracker.track_elevation:   # W5-B (IO:612)
+        t = inst.leaf_angle_tracker
+        w(f"\t\t<leaf_inclination_Beta_distribution> {cout(t.Beta_mu_inclination)} {cout(t.Beta_nu_inclination)} "
+          "</leaf_inclination_Beta_distribution>")
 
     for shoot in inst.shoot_tree:
         if shoot.isPruned():
@@ -220,7 +222,12 @@ def _write_phytomer(w, shoot, ph, phytomer_index):
                     raise NotImplementedError("writing reshaped leaves is not ported")
             if (petiole < len(ph.leaf_pose_prescribed) and leaf < len(ph.leaf_pose_prescribed[petiole])
                     and ph.leaf_pose_prescribed[petiole][leaf]):
-                raise NotImplementedError("writing prescribed leaf poses is not ported")
+                # W5-B (IO:1002-1011): a leaf steered by setLeafNormal (no stalk base of its own)
+                lb = ph.leaf_bases[petiole][leaf]
+                w("\t\t\t\t\t\t\t<leaf_prescribed>1</leaf_prescribed>")
+                w(f"\t\t\t\t\t\t\t<leaf_base>{cout(lb[0])} {cout(lb[1])} {cout(lb[2])}</leaf_base>")
+                if ph.leaf_objIDs[petiole][leaf] in getattr(ph, "leaf_stalk_base_placed", {}):
+                    raise NotImplementedError("writing placed leaf stalk bases is not ported")
             w("\t\t\t\t\t\t</leaf>")
         _write_floral_buds(w, ph, petiole)
         w("\t\t\t\t\t</petiole>")

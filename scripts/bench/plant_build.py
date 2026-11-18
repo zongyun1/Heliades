@@ -62,6 +62,7 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--save")
     ap.add_argument("--profile")
+    ap.add_argument("--bp", action="append", default=[], help="build parameter key=value (float), repeatable")
     ap.add_argument("--attrs", action="store_true", help="also save materials and data (pa_accept_attrs stream)")
     a = ap.parse_args()
     from heliades.parity.backends import ForgeBackend, HeliosBackend
@@ -82,7 +83,14 @@ def main():
         import cProfile
         pr = cProfile.Profile()
         pr.enable()
-    B.pa.buildPlantInstanceFromLibrary(pos, float(a.age))
+    bps = {k: float(v) for k, v in (x.split("=", 1) for x in a.bp)}
+    if bps:
+        if a.backend == "helios":
+            B.pa.buildPlantInstanceFromLibrary(pos, float(a.age), build_parameters=bps)
+        else:
+            B.pa.buildPlantInstanceFromLibrary(pos, float(a.age), bps)
+    else:
+        B.pa.buildPlantInstanceFromLibrary(pos, float(a.age))
     if pr is not None:
         pr.disable()
         pr.dump_stats(a.profile)

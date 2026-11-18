@@ -798,13 +798,10 @@ def GenericLeafPrototype(context_ptr, prototype_parameters, compound_leaf_index:
         mesh_vertices.append(_vadd(leaf_offset, _v3(f32(petiolule_length + join_length), 0, 0)))
         mesh_vertex_uv.append((f32(0), f32(0)))
 
-        UUIDs_petiolule: list[int] = []
+        petiolule_faces: list = []
 
-        def facet(i0, i1, i2):
-            u = ctx.add_triangle(mesh_vertices[i0], mesh_vertices[i1], mesh_vertices[i2])
-            UUIDs_petiolule.append(u)
-            mesh_faces.append((i0, i1, i2))
-            mesh_face_UUIDs.append(u)
+        def facet(i0, i1, i2):                     # collected, then added in one batch (same UUIDs and order)
+            petiolule_faces.append((i0, i1, i2))
 
         for ring in range(len(ring_x) - 1):
             for k in range(nr):
@@ -816,6 +813,13 @@ def GenericLeafPrototype(context_ptr, prototype_parameters, compound_leaf_index:
         last_ring_start = first_ring_vertex + (len(ring_x) - 1) * nr
         for k in range(nr):
             facet(last_ring_start + k, last_ring_start + (k + 1) % nr, tip_vertex)
+        UUIDs_petiolule: list[int] = []
+        if petiolule_faces:
+            Fp = np.array(petiolule_faces, np.int64)
+            MV = np.array(mesh_vertices, f32).reshape(-1, 3)
+            UUIDs_petiolule = ctx.add_triangles(MV[Fp[:, 0]], MV[Fp[:, 1]], MV[Fp[:, 2]])
+            mesh_faces.extend(petiolule_faces)
+            mesh_face_UUIDs.extend(UUIDs_petiolule)
         if UUIDs_petiolule:
             ctx.set_primitive_data(UUIDs_petiolule, "object_label", "petiolule")
         UUIDs.extend(UUIDs_petiolule)

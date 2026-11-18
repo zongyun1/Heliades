@@ -90,8 +90,8 @@ class Primitive:
     __slots__ = ("_s", "uuid")
 
     def __init__(self, store, uuid: int):
-        self._s = store
-        self.uuid = uuid
+        _setattr(self, "_s", store)
+        _setattr(self, "uuid", uuid)
 
     def __repr__(self):
         return f"Primitive(uuid={self.uuid}, type={self.type}, parent_object={self.parent_object})"
@@ -222,6 +222,7 @@ class Primitive:
         self.transform = translated(self._s.T[self.uuid], t)
 
 
+_setattr = object.__setattr__
 _PRIMITIVE_OWN = frozenset({"_s", "uuid"} | {k for k, v in vars(Primitive).items() if isinstance(v, property)})
 
 

@@ -536,14 +536,43 @@ class MaterialsMixin:
            "Context::assignMaterialToPrimitive(const std::vector<uint>&,const std::string&)")
     def assign_material_to_primitive(self, uuids, label: str):
         i = self._material_id(label)
-        ps = []
-        for u in _uuid_list(uuids):              # every primitive is checked before any is changed
-            p = self.primitives.get(u)
-            if p is None:
+        uu = _uuid_list(uuids)
+        for u in uu:                             # every primitive is checked before any is changed
+            if u not in self.primitives:
                 raise ValueError(f"ERROR (Context::assignMaterialToPrimitive): UUID of {u} does not exist in the Context.")
-            ps.append(p)
-        for p in ps:
-            self._set_primitive_material(p, i)
+        self._set_primitives_material(uu, i)
+
+    def _set_primitives_material(self, uuids: list[int], mid: int):
+        """setPrimitiveMaterial for each UUID in order, batched: material IDs, reference counts and appearance
+        per row; solid fractions (texture cache, order dependent) one by one in order where the texture changes."""
+        st = self._store
+        ix = np.asarray(uuids, np.int64)
+        old = st.mat[ix]
+        if len(ix) < 8 or (old < 0).any() or len(np.unique(ix)) != len(ix):
+            from .primitives import Primitive
+            for u in uuids:
+                self._set_primitive_material(Primitive(st, u), mid)
+            return
+        ch = old != mid
+        if not ch.any():
+            return
+        ix, old = ix[ch], old[ch]
+        mats = self.materials
+        m = mats[mid]
+        olds, counts = np.unique(old, return_counts=True)
+        for o, c in zip(olds.tolist(), counts.tolist()):
+            if o in mats:
+                mats[o].reference_count -= c
+        m.reference_count += len(ix)
+        st.mat[ix] = mid
+        st.color[ix] = m.color
+        st.tex[ix] = m.texture_file or None
+        tex_changed = {o: (mats[o].texture_file if o in mats else "") != m.texture_file for o in olds.tolist()}
+        need = [u for u, o in zip(ix.tolist(), old.tolist()) if tex_changed[o]]
+        if need:
+            from .primitives import Primitive
+            for u in need:
+                self._update_solid_fraction(Primitive(st, u))
 
     @ports("Context::assignMaterialToObject(uint,const std::string&)",
            "Context::assignMaterialToObject(const std::vector<uint>&,const std::string&)")
@@ -558,6 +587,19 @@ class MaterialsMixin:
         i = self._primitive_material_id(self.primitives[int(uuid)])
         m = self.materials.get(i)
         return m.label if m is not None else DEFAULT_MATERIAL_LABEL
+
+    def get_primitive_material_labels(self, uuids) -> list[str]:
+        """getPrimitiveMaterialLabel for each UUID (batched)."""
+        uu = _uuid_list(uuids)
+        st = self._store
+        ix = np.asarray(uu, np.int64)
+        if not len(ix) or not (((ix >= 0) & (ix < st.n)).all() and st.alive[ix].all() and (st.mat[ix] >= 0).all()):
+            return [self.get_primitive_material_label(u) for u in uu]
+        mats, out = self.materials, []
+        for i in st.mat[ix].tolist():
+            m = mats.get(i)
+            out.append(m.label if m is not None else DEFAULT_MATERIAL_LABEL)
+        return out
 
     @ports("Context::getPrimitiveMaterialID")
     def get_primitive_material_id(self, uuid: int) -> int:

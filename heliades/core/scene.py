@@ -89,6 +89,32 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
     def add_triangle(self, v0, v1, v2, color=None) -> int:
         return self._new(TRIANGLE, triangle_transform(v0, v1, v2), color)
 
+    def add_triangles(self, v0, v1, v2, color=None) -> list[int]:
+        """add_triangle(v0[i], v1[i], v2[i], color) for i = 0..n-1 in one call (same UUIDs, transforms,
+        materials and iteration order as n single calls). ``v0``/``v1``/``v2`` are (n,3) arrays."""
+        from .store import triangle_transform_rows
+        v0, v1, v2 = (np.asarray(v, f32).reshape(-1, 3) for v in (v0, v1, v2))
+        n = len(v0)
+        if n == 0:
+            return []
+        if len(v1) != n or len(v2) != n:
+            raise ValueError("add_triangles: v0, v1 and v2 must have the same length")
+        c = np.ones(4, f32)
+        if color is not None:
+            c[: len(color)] = color
+        else:
+            c[:3] = 0
+        u0 = self.current_uuid
+        rows = self._store.add_rows(u0, TRIANGLE, triangle_transform_rows(v0, v1, v2), c)
+        for u in range(u0, u0 + n):
+            self.primitive_order.insert(u)
+        self._assign_automatic_material(Primitive(self._store, u0))       # creates the material at most once
+        m = int(self._store.mat[u0])
+        self._store.mat[rows[1:]] = m
+        self.materials[m].reference_count += n - 1
+        self.current_uuid = u0 + n
+        return rows.tolist()
+
     # ---- textures ----
     @ports("Context::addTexture")
     def add_texture(self, texture_file: str):
@@ -288,6 +314,15 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
     @ports("Context::getPrimitiveArea")
     def primitive_area(self, uuid: int):
         return self.primitives[uuid].area()
+
+    def primitive_vertices_rows(self, uuids):
+        """getPrimitiveVertices for each UUID (batched): (m,4,3) float32 padded vertices and (m,) counts."""
+        ix = np.asarray(_ids(uuids), np.int64)
+        st = self._store
+        if len(ix) and not (((ix >= 0) & (ix < st.n)).all() and st.alive[ix].all()):
+            for u in ix.tolist():
+                self.primitive_vertices(u)                  # raises on the missing one
+        return st.vertices_rows(ix)
 
     def primitive_areas(self, uuids) -> np.ndarray:
         """getPrimitiveArea for each UUID (batched; float32 array in the given order)."""

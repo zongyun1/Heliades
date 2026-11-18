@@ -17,6 +17,7 @@ import numpy as np
 
 from . import vec as V
 from .primitives import PATCH, VOXEL, make_rotation_matrix, make_translation_matrix, matmult
+from .store import matmult_rows
 from ..migration_registry import ports
 
 f32 = np.float32
@@ -107,11 +108,16 @@ def _ids(x) -> list[int]:
     return [int(x)] if np.isscalar(x) else [int(i) for i in x]
 
 
+_IMMUTABLE = (np.generic, str, bool, int, float)
+
+
 def _copy_datum(v):
-    """Deep copy of a data.TypedData (a type code and a list of numpy scalars, small arrays, str, bool)."""
+    """Copy of a data.TypedData for copyPrimitiveData / copyObjectData. Entries are never modified in place
+    (setters replace them, getters return copies), so an entry holding only immutable values (numpy scalars,
+    str, bool) is shared; one holding arrays is deep-copied."""
     vals = v.values
-    if isinstance(vals, list) and all(isinstance(x, (np.generic, str, bool, int, float)) for x in vals):
-        return type(v)(v.type, list(vals))
+    if isinstance(vals, list) and all(isinstance(x, _IMMUTABLE) for x in vals):
+        return v
     return copy.deepcopy(v)
 
 
@@ -148,6 +154,32 @@ class ObjectTransformsMixin:
     def _left_multiply_members(self, obj, T):
         obj.transform = matmult(T, obj.transform)
         self._store.left_multiply_rows(self._alive_members(obj), T)
+
+    def _batch(self, ids):
+        """(objects, member rows) when one call on several objects can be done as one row operation: they all
+        exist, are distinct and share no member primitive. Else None (then they are done one by one)."""
+        if len(ids) < 2:
+            return None
+        objs = [self.objects.get(o) for o in ids]
+        if any(o is None for o in objs) or len(set(ids)) != len(ids):
+            return None
+        parts = []
+        for o in objs:
+            ix = self._alive_members(o)
+            parts.append(np.arange(ix.start, ix.stop) if isinstance(ix, slice) else ix)
+        rows = np.concatenate(parts)
+        if len(rows) > 1:
+            srt = np.sort(rows)
+            if (srt[1:] == srt[:-1]).any():
+                return None
+        return objs, rows
+
+    def _left_multiply_objects(self, objs, rows, T):
+        """T * M for each object transform and every member primitive (CompoundObject::rotate/scaleAboutPoint)."""
+        OT = matmult_rows(T, np.stack([o.transform for o in objs]).astype(f32, copy=False))
+        for o, t in zip(objs, OT):
+            o.transform = t.copy()
+        self._store.left_multiply_rows(rows, T)
 
     # ---- primitives --------------------------------------------------------------------------
 
@@ -321,7 +353,16 @@ class ObjectTransformsMixin:
            "CompoundObject::translate")
     def translate_object(self, oids, shift):
         s = V.v3(shift)
-        for oid in _ids(oids):
+        ids = _ids(oids)
+        b = self._batch(ids)
+        if b is not None:
+            if s[0] == 0 and s[1] == 0 and s[2] == 0:
+                return
+            for obj in b[0]:
+                obj.transform = _apply_translation(s, obj.transform)
+            self._store.translate_rows(b[1], s)
+            return
+        for oid in ids:
             obj = self._object(oid, "Context::translateObject")
             if s[0] == 0 and s[1] == 0 and s[2] == 0:
                 continue
@@ -339,7 +380,22 @@ class ObjectTransformsMixin:
         ``origin`` when given (it is NOT the object center)."""
         if isinstance(axis, str) and origin is not None:
             raise ValueError("rotateObject: an origin needs a vec3 axis")
-        for oid in _ids(oids):
+        ids = _ids(oids)
+        b = self._batch(ids)
+        if b is not None:                               # one matrix, as each object would build it
+            if f32(radians) == 0:
+                return
+            if isinstance(axis, str):
+                if axis not in ("x", "y", "z"):
+                    raise ValueError("CompoundObject::rotate: Rotation axis should be one of x, y, or z.")
+                T = make_rotation_matrix(radians, axis)
+            elif origin is None:
+                T = make_rotation_matrix_axis(radians, axis)
+            else:
+                T = make_rotation_matrix_about(radians, origin, axis)
+            self._left_multiply_objects(*b, T)
+            return
+        for oid in ids:
             obj = self._object(oid, "Context::rotateObject")
             if f32(radians) == 0:
                 continue
@@ -365,7 +421,14 @@ class ObjectTransformsMixin:
            "CompoundObject::scaleAboutPoint")
     def scale_object_about_point(self, oids, scale, point):
         s = V.v3(scale)
-        for oid in _ids(oids):
+        ids = _ids(oids)
+        b = self._batch(ids)
+        if b is not None:
+            if s[0] == 1 and s[1] == 1 and s[2] == 1:
+                return
+            self._left_multiply_objects(*b, make_scale_matrix_about_point(s, point))
+            return
+        for oid in ids:
             obj = self._object(oid, "Context::scaleObjectAboutPoint")
             if s[0] == 1 and s[1] == 1 and s[2] == 1:
                 continue
@@ -375,7 +438,11 @@ class ObjectTransformsMixin:
            "CompoundObject::scale")
     def scale_object(self, oids, scale):
         """Scale about the world origin (Helios: scaleAboutPoint(scale, nullorigin))."""
-        for oid in _ids(oids):
+        ids = _ids(oids)
+        if self._batch(ids) is not None:
+            self.scale_object_about_point(ids, scale, (0.0, 0.0, 0.0))
+            return
+        for oid in ids:
             self.scale_object_about_point(oid, scale, (0.0, 0.0, 0.0))
 
     @ports("Context::scaleObjectAboutCenter(uint,const vec3&)", "Context::scaleObjectAboutCenter(const std::vector<uint>&,const vec3&)",

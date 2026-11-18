@@ -3,6 +3,8 @@
 """Compound objects: tile, tube, polymesh, and object queries (mixed into Scene)."""
 from __future__ import annotations
 
+import functools
+
 import numpy as np
 
 from . import vec as V
@@ -305,11 +307,29 @@ class ObjectsMixin:
         return f32(0.5) * (lo + hi)
 
 
+@functools.lru_cache(maxsize=64)
 def _tube_factors(nr: int):
-    """cfact/sfact: cosf/sinf(2.f * PI_F * float(j) / float(nr)) for j in 0..nr."""
-    cf = [V.cosf(f32(f32(f32(2.0) * V.PI_F) * f32(j)) / f32(nr)) for j in range(nr + 1)]
-    sf = [V.sinf(f32(f32(f32(2.0) * V.PI_F) * f32(j)) / f32(nr)) for j in range(nr + 1)]
+    """cfact/sfact: cosf/sinf(2.f * PI_F * float(j) / float(nr)) for j in 0..nr (tuples; cached per nr)."""
+    cf = tuple(V.cosf(f32(f32(f32(2.0) * V.PI_F) * f32(j)) / f32(nr)) for j in range(nr + 1))
+    sf = tuple(V.sinf(f32(f32(f32(2.0) * V.PI_F) * f32(j)) / f32(nr)) for j in range(nr + 1))
     return cf, sf
+
+
+@functools.lru_cache(maxsize=256)
+def _tube_triangle_index(nr: int, n: int):
+    """Flat ring-vertex indices (into triangle_vertices.reshape(-1, 3)) of the tube triangles in member order
+    (radial slot j slowest, segment i fastest, two per quad): (i,j),(i+1,j+1),(i,j+1) and (i,j),(i+1,j),(i+1,j+1)."""
+    J, I = np.meshgrid(np.arange(nr), np.arange(n - 1), indexing="ij")
+    J, I = J.reshape(-1), I.reshape(-1)
+    w = nr + 1
+    m = 2 * len(J)
+    i0, i1, i2 = np.empty(m, np.int64), np.empty(m, np.int64), np.empty(m, np.int64)
+    i0[0::2] = i0[1::2] = I * w + J
+    i1[0::2], i2[0::2] = (I + 1) * w + J + 1, I * w + J + 1
+    i1[1::2], i2[1::2] = (I + 1) * w + J, (I + 1) * w + J + 1
+    for a in (i0, i1, i2):
+        a.setflags(write=False)
+    return i0, i1, i2
 
 
 def _tube_frames(nodes, radius=None):
@@ -412,6 +432,18 @@ def _vecmult(M, v) -> np.ndarray:
     return out
 
 
+def _vecmult_rows(M, P: np.ndarray) -> np.ndarray:
+    """_vecmult for every point of P (..., 3): V[i] = 0.f, then V[i] += M[4i+k] * v[k], k = 0..3 (v[3] = 1)."""
+    out = np.empty(P.shape, f32)
+    one = f32(1.0)
+    for i in range(3):
+        acc = np.zeros(P.shape[:-1], f32)
+        for k in range(3):
+            acc = acc + M[4 * i + k] * P[..., k]
+        out[..., i] = acc + M[4 * i + 3] * one
+    return out
+
+
 class TubeEditMixin:
     """Tube object setters and getters. Tube data (nodes, radii, colors and the ring vertices
     ``triangle_vertices``) is stored in the object's local frame, as in Helios; every setter first
@@ -431,7 +463,7 @@ class TubeEditMixin:
         nodes_world = self.tube_object_nodes(obj.oid)
         radius_world = self.tube_object_node_radii(obj.oid)
         tv = obj.extra["triangle_vertices"]
-        obj.extra["triangle_vertices"] = np.array([[_vecmult(T, v) for v in ring] for ring in tv], f32).reshape(tv.shape)
+        obj.extra["triangle_vertices"] = _vecmult_rows(T, np.asarray(tv, f32))
         obj.extra["nodes"] = np.asarray(nodes_world, f32).reshape(-1, 3)
         obj.extra["radius"] = np.asarray(radius_world, f32).reshape(-1)
         obj.transform = _IDENTITY16.copy()
@@ -456,19 +488,15 @@ class TubeEditMixin:
 
         m = 2 * nr * max(n - 1, 0)
         st = self._store
-        ix = np.asarray(uu[:m], np.int64)
-        if m and len(ix) == m and ((ix >= 0) & (ix < st.n)).all() and st.alive[ix].all() \
-                and (st.ptype[ix] == TRIANGLE).all():
-            # batched (every row the same op sequence as triangle_transform); k = 2 * (j * (n-1) + i) + {0, 1}
-            A = np.asarray(tv, f32)
-            J, I = np.meshgrid(np.arange(nr), np.arange(n - 1), indexing="ij")
-            J, I = J.reshape(-1), I.reshape(-1)
-            v0 = np.repeat(A[I, J], 2, axis=0)
-            v1 = np.empty((m, 3), f32)
-            v2 = np.empty((m, 3), f32)
-            v1[0::2], v2[0::2] = A[I + 1, J + 1], A[I, J + 1]
-            v1[1::2], v2[1::2] = A[I + 1, J], A[I + 1, J + 1]
-            st.T[ix] = triangle_transform_rows(v0, v1, v2)
+        ix = obj.member_index() if m == len(uu) else np.asarray(uu[:m], np.int64)
+        ok = m > 0 and len(uu) >= m
+        if ok:
+            ok = ix.stop <= st.n if isinstance(ix, slice) else bool(((ix >= 0) & (ix < st.n)).all())
+        if ok and st.alive[ix].all() and (st.ptype[ix] == TRIANGLE).all():
+            # batched (every row the same op sequence as triangle_transform)
+            A = np.asarray(tv, f32).reshape(-1, 3)
+            i0, i1, i2 = _tube_triangle_index(nr, n)
+            st.T[ix] = triangle_transform_rows(A[i0], A[i1], A[i2])
             return
         ii = 0
         for j in range(nr):
@@ -577,7 +605,7 @@ class TubeEditMixin:
         m2 = (d[..., 0] * d[..., 0] + d[..., 1] * d[..., 1]) + d[..., 2] * d[..., 2]
         with np.errstate(divide="ignore", invalid="ignore"):
             inv = f32(1.0) / np.sqrt(m2)
-        axis = np.where((m2 <= 0)[..., None], d, d * inv[..., None])       # vec3::normalize keeps a zero vector
+            axis = np.where((m2 <= 0)[..., None], d, d * inv[..., None])   # vec3::normalize keeps a zero vector
         obj.extra["triangle_vertices"] = (nd + axis * np.asarray(radii, f32).reshape(-1, 1, 1)).astype(f32)
         obj.extra["radius"] = np.array(radii, f32)
         self._update_tube_triangles(obj)

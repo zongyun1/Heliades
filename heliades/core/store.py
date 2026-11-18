@@ -39,6 +39,18 @@ INV_V1_F32 = np.linalg.inv(_V1).astype(f32)  # exact small rationals, so any inv
 def matmult_rows(L: np.ndarray, R: np.ndarray) -> np.ndarray:
     """helios::matmult(L, R[n]) for a batch: ``L`` is one (16,) matrix or (n,16) matrices, ``R`` is (n,16).
     M[4i+j] = 0.f, then M[4i+j] += L[4i+k] * R[4k+j] for k = 0..3 (float32 after every step)."""
+    if L.ndim == 1 and len(R) > 256:
+        # same per-entry sequence, on contiguous (n,) columns (faster than (n,4,4) broadcasting for large n)
+        Rt = np.ascontiguousarray(R.reshape(-1, 16).T)
+        M = np.zeros((16, len(Rt[0])), f32)
+        tmp = np.empty(len(Rt[0]), f32)
+        for i in range(4):
+            for j in range(4):
+                m = M[4 * i + j]
+                for k in range(4):
+                    np.multiply(Rt[4 * k + j], L[4 * i + k], out=tmp)
+                    m += tmp
+        return M.T
     R3 = R.reshape(-1, 4, 4)
     if L.ndim == 1:
         L3 = L.reshape(1, 4, 4)
@@ -147,6 +159,28 @@ class PrimitiveStore:
             self.alive[u] = True
             self.count += 1
         self.n = max(self.n, u + 1)
+
+    def add_rows(self, u0: int, ptype: int, T: np.ndarray, color) -> np.ndarray:
+        """add() for the fresh rows u0 .. u0+len(T)-1, all of one type and color."""
+        m = len(T)
+        self.reserve(u0 + m)
+        sl = slice(u0, u0 + m)
+        if self.alive[sl].any():
+            raise ValueError("add_rows: rows already in use")
+        self.T[sl] = T
+        self.ptype[sl] = ptype
+        self.color[sl] = color
+        self.parent[sl] = 0
+        self.sf[sl] = 1
+        self.mat[sl] = -1
+        self.tex[sl] = None
+        self.nuv[sl] = 0
+        for u in range(u0, u0 + m):
+            self.extra.pop(u, None)
+        self.alive[sl] = True
+        self.count += m
+        self.n = max(self.n, u0 + m)
+        return np.arange(u0, u0 + m)
 
     def kill(self, u: int):
         if self.alive[u]:

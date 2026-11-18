@@ -314,3 +314,5 @@ def register_build_parameters(pa):
     grapevine.register_build_parameters(pa)
     from . import trees                                     # W5-D: the trained trees (PL:512-518)
     trees.register_build_parameters(pa)
+    from . import cereals_registry           # W5-A: maize, rice, sorghum, wheat
+    cereals_registry.register_build_parameters(pa)

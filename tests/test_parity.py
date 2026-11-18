@@ -104,6 +104,8 @@ from heliades.parity.suites.plantarch import cases_fruit_trees as _FT  # noqa: E
 SLOW_CASES |= {n for n in CASES if n.split(".")[1] in _FT.MODELS
                and n not in {f"plantarch.{m}.params" for m in _FT.MODELS}
                and n not in {"plantarch.olive.age0", "plantarch.easternredbud.age0"}}
+# setPlantBasePosition: the almond move grows two seasons
+SLOW_CASES |= {"plantarch.move.almond"}
 
 
 @pytest.mark.parametrize("name", [pytest.param(n, marks=pytest.mark.slow) if n in SLOW_CASES else n

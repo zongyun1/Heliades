@@ -363,8 +363,13 @@ class ShadowGrid:
 
     __slots__ = ("bases", "_built", "grid", "depth", "voxel_size")
 
-    def __init__(self, bases):
-        self.bases = bases                       # (N, 3) float32, the leaf bases the grid is built from
+    def __init__(self, bases, origin=None):
+        # (N, 3) float32: leaf_base - shadow_grid_origin as of the update (PA:9119), so a later build uses the origin
+        # the plant had when Helios would have built the grid
+        bases = np.asarray(bases, f32).reshape(-1, 3)
+        if origin is not None and len(bases):
+            bases = bases - np.asarray(origin, f32).reshape(3)
+        self.bases = bases
         self._built = False
         self.grid = {}
         self.depth = {}
@@ -385,7 +390,7 @@ class ShadowGrid:
         crown_extent = max(max(ext[0], ext[1]), ext[2])
         voxel_size = max(f32(0.02), f32(crown_extent / f32(20)))
         self.voxel_size = voxel_size
-        # base = leaf_base - shadow_grid_origin (the origin stays at 0: plants are never translated here)
+        # self.bases already hold leaf_base - shadow_grid_origin (see __init__)
         li = np.floor(bases[:, 0] / voxel_size).astype(np.int64)
         lj = np.floor(bases[:, 2] / voxel_size).astype(np.int64)
         lk = np.floor(bases[:, 1] / voxel_size).astype(np.int64)
@@ -427,13 +432,15 @@ class ShadowGrid:
         self.depth = {((i + off) * span + (j + off)) * span + (k + off): d for (i, j, k), d in depth.items()}
         return self
 
-    def light_exposure(self, position) -> np.float32:
-        """``shadowGridLightExposure`` (PA:9196-9227)."""
+    def light_exposure(self, position, origin=None) -> np.float32:
+        """``shadowGridLightExposure`` (PA:9196-9227); ``origin`` is the plant's current ``shadow_grid_origin``."""
         from ..core import vec as V
         self.build()
         if not self.grid or self.voxel_size <= 0:
             return shadow_full_exposure_C
         p = np.asarray(position, f32)
+        if origin is not None:
+            p = p - np.asarray(origin, f32).reshape(3)         # grid_position = position - grid_origin
         vs = self.voxel_size
         i = int(np.floor(f32(p[0] / vs)))
         j = int(np.floor(f32(p[2] / vs)))
@@ -464,6 +471,11 @@ def _season_state(inst):
     return inst
 
 
+def _origin(inst):
+    """``PlantInstance::shadow_grid_origin`` (H:3445, starts at 0; moved by ``setPlantBasePosition``)."""
+    return getattr(inst, "shadow_grid_origin", None)
+
+
 @ports("PlantArchitecture::getPlantLeafBases")
 def getPlantLeafBases(pa, plantID):
     out = []
@@ -486,7 +498,7 @@ def updateShadowGrid(pa, plantID):
     if len(leaf_bases) == inst.shadow_grid_leaf_count:
         return
     inst.shadow_grid_leaf_count = len(leaf_bases)
-    inst.shadow_grid = ShadowGrid(leaf_bases)
+    inst.shadow_grid = ShadowGrid(leaf_bases, _origin(inst))
 
 
 def _leaf_areas(pa, objIDs):
@@ -581,12 +593,14 @@ def season_step(pa, plantID):
 
 @ports("PlantArchitecture::getShadowLightExposureAtPoint")
 def getShadowLightExposureAtPoint(pa, plantID, position) -> np.float32:
-    return _season_state(pa.plant_instances[plantID]).shadow_grid.light_exposure(position)
+    inst = _season_state(pa.plant_instances[plantID])
+    return inst.shadow_grid.light_exposure(position, _origin(inst))
 
 
 @ports("PlantArchitecture::getSeasonPeakLightExposureAtPoint")
 def getSeasonPeakLightExposureAtPoint(pa, plantID, position) -> np.float32:
-    return _season_state(pa.plant_instances[plantID]).season_peak_shadow_grid.light_exposure(position)
+    inst = _season_state(pa.plant_instances[plantID])
+    return inst.season_peak_shadow_grid.light_exposure(position, _origin(inst))
 
 
 @ports("PlantArchitecture::isStructuralShoot")
@@ -614,7 +628,8 @@ def updateGrowthPriority(pa, plantID):
         siblings = siblings_by_parent[parent]
         if len(siblings) < growth_priority_min_siblings:
             continue
-        ranked = [(grid.light_exposure(tree[sid].shoot_internode_vertices[-1][-1]), sid) for sid in siblings]
+        origin = _origin(inst)
+        ranked = [(grid.light_exposure(tree[sid].shoot_internode_vertices[-1][-1], origin), sid) for sid in siblings]
         ranked = std_sort(ranked, lambda a, b: a[0] > b[0])
         promoted_count = int(np.ceil(f32(growth_priority_promoted_fraction * f32(len(ranked)))))
         promoted_count = max(1, min(promoted_count, len(ranked) - 1))

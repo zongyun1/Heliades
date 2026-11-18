@@ -88,13 +88,14 @@ def _apply_translation(shift, M: np.ndarray) -> np.ndarray:
     """applyTranslationToMatrix (Context_object.cpp) / translateObjectPrimitives_private: add the
     shift to the translation column of an affine matrix, else fall back on T*M."""
     s = V.v3(shift)
-    if M[12] == 0 and M[13] == 0 and M[14] == 0 and M[15] == 1:
+    if (M[12:16] == _AFFINE_ROW).all():
         M = M.copy()
-        M[3] = M[3] + s[0]
-        M[7] = M[7] + s[1]
-        M[11] = M[11] + s[2]
+        M[3:12:4] = M[3:12:4] + s          # M[3] += s.x, M[7] += s.y, M[11] += s.z
         return M
     return matmult(make_translation_matrix(s), M)
+
+
+_AFFINE_ROW = np.array([0, 0, 0, 1], f32)
 
 
 def _xform_point(T, p) -> np.ndarray:
@@ -354,9 +355,10 @@ class ObjectTransformsMixin:
     def translate_object(self, oids, shift):
         s = V.v3(shift)
         ids = _ids(oids)
+        zero = not s.any()                      # shift == nullorigin (-0 counts as 0, NaN does not)
         b = self._batch(ids)
         if b is not None:
-            if s[0] == 0 and s[1] == 0 and s[2] == 0:
+            if zero:
                 return
             for obj in b[0]:
                 obj.transform = _apply_translation(s, obj.transform)
@@ -364,7 +366,7 @@ class ObjectTransformsMixin:
             return
         for oid in ids:
             obj = self._object(oid, "Context::translateObject")
-            if s[0] == 0 and s[1] == 0 and s[2] == 0:
+            if zero:
                 continue
             obj.transform = _apply_translation(s, obj.transform)
             self._store.translate_rows(self._alive_members(obj), s)

@@ -143,6 +143,16 @@ def set_polymesh_object_vertices(ctx, objID: int, vertices_global):
     W = np.empty_like(loc)
     for r in range(3):
         W[:, r] = ((T[4 * r] * loc[:, 0] + T[4 * r + 1] * loc[:, 1]) + T[4 * r + 2] * loc[:, 2]) + T[4 * r + 3]
+    F = np.asarray(t["faces"], np.int64).reshape(-1, 3)
+    members = np.asarray(obj.uuids, np.int64)[np.asarray(t["face_members"], np.int64)]
+    st = ctx._store
+    alive = np.array([u in ctx.primitives for u in members.tolist()], bool)
+    rows = members[alive]
+    if len(np.unique(rows)) == len(rows):          # batched, each face the op sequence of triangle_transform
+        from ..core.store import triangle_transform_rows
+        Fa = F[alive]
+        st.T[rows] = triangle_transform_rows(W[Fa[:, 0]], W[Fa[:, 1]], W[Fa[:, 2]])
+        return
     for f, face in enumerate(t["faces"]):
         u = obj.uuids[int(t["face_members"][f])]
         p = ctx.primitives.get(u)

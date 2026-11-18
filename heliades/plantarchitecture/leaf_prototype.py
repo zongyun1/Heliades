@@ -217,6 +217,199 @@ def deformLeafLattice(rest_vertices, Nx: int, Ny: int, scale, mature_scale, flex
     converged_fraction = f32(1e-4)
     unconverged_limit = f32(0.01)
 
+    # The relaxation below is vectorised over the stations where the C++ loops are independent per station or
+    # are running sums (np.add.accumulate is strictly sequential, so each sum adds the same terms in the same
+    # order); the clamped bend accumulation stays a scalar loop. glibc cosf/sinf/powf are still called per value.
+    n1 = Nx + 1
+    H = np.array(station_heading, f32).reshape(n1, 3)
+    AX = np.array(station_axis, f32).reshape(n1, 3)
+    M0 = np.array(midrib, f32).reshape(n1, 3)
+    g = gravity_direction
+    seg_mass = [f32(0)] * Nx                       # segment_mass for loop index i (io = i + 1)
+    distal_at = [f32(0)] * Nx                      # distal_mass as the moment loop sees it at index i
+    distal_mass = f32(0)
+    for i in range(Nx - 1, -1, -1):
+        io = i + 1
+        seg_mass[i] = f32(f32(f32(width[io] * ds[io]) * scale) * scale)
+        distal_at[i] = distal_mass
+        distal_mass = f32(distal_mass + seg_mass[i])
+    distal_arr = np.array(distal_at, f32)
+    half_mass = np.array([f32(m * f32(0.5)) for m in seg_mass], f32)
+    local_compliance = [f32(0)] + [f32(compliance * powf(taper_floor, f32(f32(i) / f32(Nx)))) for i in range(1, n1)]
+    step_ds = np.array([f32(ds[i] * scale) for i in range(n1)], f32)
+    zero = f32(0)
+
+    theta = np.array(theta_rest, f32)
+    theta_rest_arr = np.array(theta_rest, f32)
+    deflected = None
+    unbalanced = f32(0)
+
+    def integrate():
+        cs = np.array([cosf(t) for t in theta[1:]], f32)
+        sn = np.array([sinf(t) for t in theta[1:]], f32)
+        d = np.empty((Nx, 3), f32)                 # cosf(theta) * heading + (0, 0, sinf(theta))
+        d[:, 0] = cs * H[1:, 0] + zero
+        d[:, 1] = cs * H[1:, 1] + zero
+        d[:, 2] = cs * H[1:, 2] + sn
+        acc = np.empty((n1, 3), f32)
+        acc[0] = scale * M0[0]
+        acc[1:] = step_ds[1:, None] * d
+        return np.add.accumulate(acc, axis=0)       # deflected[i] = deflected[i-1] + ds*scale*d
+
+    gx, gy, gz = g[0], g[1], g[2]
+    for _iteration in range(maximum_moment_iterations):
+        deflected = integrate()
+        lever = deflected[1:] - deflected[:-1]
+        cr = np.empty((Nx, 3), f32)                # cross(lever, gravity_direction)
+        cr[:, 0] = lever[:, 1] * gz - lever[:, 2] * gy
+        cr[:, 1] = lever[:, 2] * gx - lever[:, 0] * gz
+        cr[:, 2] = lever[:, 0] * gy - lever[:, 1] * gx
+        arm = (cr[:, 0] * AX[:Nx, 0] + cr[:, 1] * AX[:Nx, 1]) + cr[:, 2] * AX[:Nx, 2]
+        terms = np.empty(2 * Nx + 1, f32)          # moment[i] = (moment[i+1] + distal*arm) + (mass/2)*arm, i descending
+        terms[0] = 0
+        terms[1::2] = (distal_arr * arm)[::-1]
+        terms[2::2] = (half_mass * arm)[::-1]
+        run = np.add.accumulate(terms)
+        moment = list(run[2 * Nx::-2])             # moment[0..Nx]
+        accumulated_bend = f32(0)
+        residual = f32(0)
+        largest_bend = f32(0)
+        th = list(theta)
+        theta_balanced = list(theta_rest)
+        for i in range(1, n1):
+            curvature = f32(-local_compliance[i] * moment[i])
+            accumulated_bend = f32(accumulated_bend + f32(f32(curvature * ds[i]) * scale))
+            b = f32(theta_rest[i] + accumulated_bend)
+            lo, hi = turn_floor[i], turn_ceiling[i]
+            balanced = lo if b < lo else (hi if hi < b else b)          # std::clamp
+            accumulated_bend = f32(balanced - theta_rest[i])
+            residual = max(residual, abs(f32(balanced - th[i])))
+            largest_bend = max(largest_bend, abs(accumulated_bend))
+            theta_balanced[i] = balanced
+        unbalanced = residual
+        if residual <= f32(converged_fraction * largest_bend):
+            break
+        tb = np.array(theta_balanced, f32)
+        theta[1:] = theta[1:] + step * (tb[1:] - theta[1:])
+        theta[0] = theta_rest[0]
+    if unbalanced > unconverged_limit:
+        raise PlantArchitectureError(f"ERROR (deformLeafLattice): The blade did not settle under its own weight within "
+                                     f"{maximum_moment_iterations} passes; it was still {unbalanced:f} rad from balance at "
+                                     f"flexibility {flexibility:f} and taper {taper:f}. This is far outside the flexibility a "
+                                     "real leaf has.")
+    deflected = integrate()
+
+    turn = theta - theta_rest_arr
+    ct = np.array([cosf(t) for t in turn], f32)[None, :]
+    st = np.array([sinf(t) for t in turn], f32)[None, :]
+    R = rest.reshape(Ny + 1, n1, 3)                # [j, i]
+    off = (R - M0[None]) * scale
+    h0, h1, h2 = H[None, :, 0], H[None, :, 1], H[None, :, 2]
+    o0, o1, o2 = off[..., 0], off[..., 1], off[..., 2]
+    along = o0 * h0 + o1 * h1
+    lat0 = (o0 - along * h0) - zero
+    lat1 = (o1 - along * h1) - zero
+    lat2 = (o2 - along * h2) - o2
+    along_rotated = along * ct - o2 * st
+    vertical_rotated = along * st + o2 * ct
+    D = deflected[None]
+    out = np.empty_like(R)
+    out[..., 0] = ((D[..., 0] + along_rotated * h0) + lat0) + zero
+    out[..., 1] = ((D[..., 1] + along_rotated * h1) + lat1) + zero
+    out[..., 2] = ((D[..., 2] + along_rotated * h2) + lat2) + vertical_rotated
+    return out.reshape(-1, 3)
+
+
+def _deform_leaf_lattice_scalar(rest_vertices, Nx: int, Ny: int, scale, mature_scale, flexibility, taper=1.0,
+                      gravity=(0.0, 0.0, -1.0)) -> np.ndarray:
+    """Statement-by-statement reference of :func:`deformLeafLattice` (kept for the tests)."""
+    rest = np.asarray(rest_vertices, f32).reshape(-1, 3)
+    Nx, Ny = int(Nx), int(Ny)
+    scale, mature_scale, flexibility, taper = f32(scale), f32(mature_scale), f32(flexibility), f32(taper)
+    gravity = np.asarray(gravity, f32).reshape(3)
+    vertex_count = (Nx + 1) * (Ny + 1)
+    if len(rest) != vertex_count:
+        raise PlantArchitectureError(f"ERROR (deformLeafLattice): Expected {vertex_count} vertices for a {Nx}x{Ny} leaf "
+                                     f"lattice, but {len(rest)} were given.")
+    elif scale < f32(0):
+        raise PlantArchitectureError(f"ERROR (deformLeafLattice): Leaf scale must be non-negative, but {scale:f} was given.")
+    elif flexibility < f32(0):
+        raise PlantArchitectureError(f"ERROR (deformLeafLattice): Leaf flexibility must be non-negative, but {flexibility:f} was given.")
+    elif mature_scale <= f32(0) and flexibility > f32(0):
+        raise PlantArchitectureError("ERROR (deformLeafLattice): Mature leaf scale must be positive when the leaf is flexible, "
+                                     f"but {mature_scale:f} was given. The mature size sets the length that the dimensionless "
+                                     "flexibility is measured against.")
+    elif not np.all(np.isfinite(gravity)) or V.magnitude(gravity) == f32(0):
+        raise PlantArchitectureError(f"ERROR (deformLeafLattice): The gravity direction must be finite and non-zero, but "
+                                     f"({gravity[0]:f}, {gravity[1]:f}, {gravity[2]:f}) was given.")
+
+    if flexibility == f32(0) or scale == f32(0):
+        return rest.copy()
+
+    compliance = f32(flexibility / powf(max(mature_scale, f32(1e-6)), f32(4)))
+
+    def idx(i, j):
+        return j * (Nx + 1) + i
+
+    j_mid = Ny // 2
+    midrib = [rest[idx(i, j_mid)].copy() for i in range(Nx + 1)]
+
+    ds = [f32(0)] * (Nx + 1)
+    width = [f32(0)] * (Nx + 1)
+    for i in range(Nx + 1):
+        if i > 0:
+            ds[i] = V.magnitude(_vsub(midrib[i], midrib[i - 1]))
+        width[i] = V.magnitude(_vsub(rest[idx(i, Ny)], rest[idx(i, 0)]))
+
+    theta_rest = [f32(0)] * (Nx + 1)
+    for i in range(1, Nx + 1):
+        seg = _vsub(midrib[i], midrib[i - 1])
+        horizontal = sqrtf(f32(seg[0] * seg[0]) + f32(seg[1] * seg[1]))
+        theta_rest[i] = atan2f(seg[2], horizontal)
+    theta_rest[0] = theta_rest[1]
+
+    gravity_direction = V.div(gravity, V.magnitude(gravity))
+    station_heading = [None] * (Nx + 1)
+    station_axis = [None] * (Nx + 1)
+    turn_floor = [f32(f32(f32(-0.5) * PI_F) + f32(1e-3))] * (Nx + 1)
+    turn_ceiling = [f32(f32(0.5) * PI_F)] * (Nx + 1)
+    for i in range(Nx + 1):
+        rs = _vsub(midrib[i], midrib[i - 1]) if i > 0 else _vsub(midrib[1], midrib[0])
+        rh = sqrtf(f32(rs[0] * rs[0]) + f32(rs[1] * rs[1]))
+        station_heading[i] = _v3(rs[0] / rh, rs[1] / rh, 0) if rh > f32(1e-9) else _v3(1, 0, 0)
+        station_axis[i] = _v3(-station_heading[i][1], station_heading[i][0], 0)
+        gravity_along = V.dot(gravity_direction, station_heading[i])
+        gravity_vertical = gravity_direction[2]
+        if hypotf(gravity_along, gravity_vertical) < f32(1e-6):
+            turn_floor[i] = -FLOAT_MAX
+            turn_ceiling[i] = FLOAT_MAX
+            continue
+        hanging_angle = atan2f(gravity_vertical, gravity_along)
+        rest_from_hanging = remainderf(f32(theta_rest[i] - hanging_angle), f32(f32(2) * PI_F))
+        hanging_branch = f32(theta_rest[i] - rest_from_hanging)
+        if rest_from_hanging >= f32(0):
+            turn_floor[i] = f32(hanging_branch + f32(1e-3))
+            turn_ceiling[i] = f32(hanging_branch + PI_F)
+        else:
+            turn_floor[i] = f32(hanging_branch - PI_F)
+            turn_ceiling[i] = f32(hanging_branch - f32(1e-3))
+
+    taper_floor = max(taper, f32(1e-3))
+    load = f32(0)
+    straight_moment = f32(0)
+    distal_mass = f32(0)
+    for i in range(Nx - 1, 0, -1):
+        io = i + 1
+        segment_mass = f32(f32(f32(width[io] * ds[io]) * scale) * scale)
+        lever_arm = f32(ds[io] * scale)
+        straight_moment = f32(straight_moment + f32(f32(distal_mass * lever_arm) + f32(f32(segment_mass * f32(0.5)) * lever_arm)))
+        distal_mass = f32(distal_mass + segment_mass)
+        load = f32(load + f32(f32(f32(f32(compliance * powf(taper_floor, f32(f32(i) / f32(Nx)))) * straight_moment) * ds[i]) * scale))
+    step = min(f32(0.5), f32(f32(1) / max(load, f32(1e-12))))
+    maximum_moment_iterations = 5000
+    converged_fraction = f32(1e-4)
+    unconverged_limit = f32(0.01)
+
     theta = list(theta_rest)
     deflected = [np.zeros(3, f32) for _ in range(Nx + 1)]
     moment = [f32(0)] * (Nx + 1)

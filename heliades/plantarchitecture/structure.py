@@ -144,7 +144,7 @@ _REPEATED = {"plant_instance": "plant_instances", "shoot": "shoots", "phytomer":
              "leaf": "leaves", "floral_bud": "floral_buds", "flower": "flowers",
              "internode_floral_buds": "internode_floral_buds"}
 #: tags whose text is a string (everything else is numeric)
-_STRING_TAGS = {"shoot_type_label", "growth_shoot_type_label"}
+_STRING_TAGS = {"shoot_type_label", "growth_shoot_type_label", "plant_model"}
 #: tags that are always lists of numbers, even with one value
 _VECTOR_TAGS = {"base_position", "base_rotation", "petiole_axis_initial", "petiole_rotation_axis",
                 "curvature_perturbations", "yaw_perturbations", "azimuthal_restoring_angles", "gravitropic_angles"}

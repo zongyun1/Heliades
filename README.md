@@ -157,6 +157,7 @@ against a pinned Helios build**:
 | GPU BVH + batched ray casting (Warp) | `heliades/core/device.py` |
 | USD export (UUIDs and primitive data as primvars) | `heliades/io/usd.py` |
 | Parity harness: one case runs on both backends; exact / ulp / dist tiers | `heliades/parity/` (suites in `parity/suites/{core,plantarch}/`) |
+| Fast mode `Scene(mode="fast")`: same draws and (mostly) same topology, float32-close geometry, deferred transforms; batch builder for many plants across processes | `heliades/core/fast.py`, `heliades/plantarchitecture/batch.py`, `docs/core/FAST_MODE.md` |
 
 ```bash
 python -m heliades.parity            # all parity cases vs Helios

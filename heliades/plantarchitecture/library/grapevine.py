@@ -620,6 +620,7 @@ def _grapevine_fruit_prototype(context_ptr, subdivisions, build_parameters=None)
     rsum = radii[:, None] + radii[None, :]
     upper = np.triu(np.ones((n, n), bool), 1)
     x_hi = (cluster_length - f32(0.5) * radii).astype(f32)
+    fast = getattr(ctx, "mode", "exact") == "fast"
     for iteration in range(400):
         if iteration < 300:
             C[:, 1] = C[:, 1] * keep
@@ -639,6 +640,10 @@ def _grapevine_fruit_prototype(context_ptr, subdivisions, build_parameters=None)
             # as running float32 sums (ufunc.accumulate is strictly sequential along the axis). Pairs that do
             # not push contribute an exact no-op: subtracting +0 and adding -0 leave every float (and the sign
             # of a zero) unchanged, so rows / columns without any push are left out altogether.
+            if fast:                                # any summation order (fast mode)
+                Pm = np.where(mask, P, f32(0))
+                C = C + (Pm.sum(1) - Pm.sum(0)).astype(f32)
+                continue
             rows = np.flatnonzero(m2.any(1))
             cols = np.flatnonzero(m2.any(0))
             disp = np.zeros((n, 3), f32)

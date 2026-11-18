@@ -675,6 +675,24 @@ class FastSceneMixin:
             self._recipe[oid] = np.array(_clamp_radius([f32(r) for r in radius]), f32)
         return oid
 
+    def add_triangle(self, v0, v1, v2, color=None):
+        """addTriangle with the transform from one float64 product and the RGBA color cached per color value."""
+        key = None if color is None else tuple(float(c) for c in color)
+        cache = self.__dict__.setdefault("_rgba_cache", {})
+        c = cache.get(key)
+        if c is None:
+            from .scene import _color_rgba
+            c = cache[key] = _color_rgba(color)
+        V2 = np.ones((4, 4), f64)
+        V2[:3, 0], V2[:3, 1], V2[:3, 2] = v0, v1, v2
+        st = self._store
+        u = self.current_uuid
+        st.add(u, TRIANGLE, (V2 @ _INV_V1_64).astype(f32).reshape(16), c)
+        self.primitive_order.insert(u)
+        self._assign_automatic_material(FastPrimitive(st, u))
+        self.current_uuid = u + 1
+        return u
+
     def _add_triangle_rows(self, Trows: np.ndarray, color) -> list[int]:
         """add_triangles with ready-made transforms (same UUIDs, materials and iteration order)."""
         from .scene import _color_rgba

@@ -55,7 +55,10 @@ def _counting(gen):
     return box
 
 
-def record(model: str, age: float, seed: int = 1, mode: str = "exact", build_parameters=None) -> Record:
+def record(model: str, age: float, seed: int = 1, mode: str = "exact", build_parameters=None, move=None,
+           grow_after: float = 0.0) -> Record:
+    """Build the plant; with ``move``, then ``setPlantBasePosition(move)``, ``advanceTime(grow_after)`` (if > 0) and
+    move it back to the origin (deferred transforms must follow the plant)."""
     from ..core.scene import Scene
     from ..plantarchitecture import PlantArchitecture
     sc = Scene(mode=mode)
@@ -68,6 +71,12 @@ def record(model: str, age: float, seed: int = 1, mode: str = "exact", build_par
         pid = pa.buildPlantInstanceFromLibrary((0.0, 0.0, 0.0), float(age), dict(build_parameters))
     else:
         pid = pa.buildPlantInstanceFromLibrary((0.0, 0.0, 0.0), float(age))
+    if move is not None:
+        pa.setPlantBasePosition(pid, tuple(move))
+        if grow_after > 0:
+            pa.advanceTime(pid, float(grow_after))
+        sc.object_area(next(iter(sc.objects))) if sc.objects else None      # a targeted read in between
+        pa.setPlantBasePosition(pid, (0.0, 0.0, 0.0))
     dt = time.perf_counter() - t0
     draws = box[0]
     snap = sc.snapshot(include_hidden=True)
@@ -163,9 +172,10 @@ def compare(a: Record, b: Record) -> dict:
     return r
 
 
-def check(model: str, age: float, seed: int = 1, build_parameters=None) -> dict:
-    """Build in both modes and compare."""
-    return compare(record(model, age, seed, "exact", build_parameters), record(model, age, seed, "fast", build_parameters))
+def check(model: str, age: float, seed: int = 1, build_parameters=None, **kw) -> dict:
+    """Build in both modes and compare (``kw``: ``move`` / ``grow_after`` of :func:`record`)."""
+    return compare(record(model, age, seed, "exact", build_parameters, **kw),
+                   record(model, age, seed, "fast", build_parameters, **kw))
 
 
 __all__ = ["Record", "record", "compare", "check", "metrics"]

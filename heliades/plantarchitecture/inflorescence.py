@@ -161,7 +161,7 @@ def make_closed_fruit_surfaces_one_sided(ctx, objID: int, fruit_material_name: s
         return len(welded) - 1
 
     Vt, nv = ctx.primitive_vertices_rows(UUIDs)
-    fast = _weld_exact_duplicates(Vt, nv, tolerance)
+    fast = _weld_exact_duplicates(Vt, nv, tolerance, allow_chains=getattr(ctx, "mode", "exact") == "fast")
     if fast is not None:
         faces, welded = fast
     else:
@@ -254,7 +254,7 @@ def make_closed_fruit_surfaces_one_sided(ctx, objID: int, fruit_material_name: s
         ctx.assign_material_to_primitive(uu, label)
 
 
-def _weld_exact_duplicates(Vt, nv, tolerance):
+def _weld_exact_duplicates(Vt, nv, tolerance, allow_chains: bool = False):
     """Fast exact path of the sequential vertex weld in makeClosedFruitSurfacesOneSided.
 
     The weld visits each vertex in order and returns the first already-welded vertex within ``tolerance`` found
@@ -264,7 +264,8 @@ def _weld_exact_duplicates(Vt, nv, tolerance):
     clique the first-occurring value of the component is welded and every later vertex of the component
     matches it. So the weld is "map each value to its component's first value, numbered by first occurrence",
     computed here with array operations. Returns (faces, welded), or None when some component is not a clique
-    or a vertex is not finite (then the caller welds one by one)."""
+    or a vertex is not finite (then the caller welds one by one). Fast mode (``allow_chains``) welds a non-clique
+    component to its first value too (a chain of near vertices becomes one vertex instead of the greedy split)."""
     mask = np.arange(4)[None, :] < np.asarray(nv)[:, None]
     P = Vt[mask]
     if not len(P) or not np.isfinite(P).all():
@@ -317,7 +318,7 @@ def _weld_exact_duplicates(Vt, nv, tolerance):
         ncomp, comp = connected_components(coo_matrix((np.ones(len(ei)), (ei, ej)), shape=(n, n)), directed=False)
         size = np.bincount(comp, minlength=ncomp)
         edges = np.bincount(comp[ei], minlength=ncomp)
-        if (edges != size * (size - 1) // 2).any():      # a chain: the greedy order matters, weld one by one
+        if not allow_chains and (edges != size * (size - 1) // 2).any():      # a chain: the greedy order matters, weld one by one
             return None
         cmin = np.full(ncomp, n, np.int64)
         np.minimum.at(cmin, comp, np.arange(n))

@@ -106,6 +106,9 @@ def _norm_rows(v: np.ndarray) -> np.ndarray:
 
 # ---- storage -----------------------------------------------------------------------------------------
 
+_AFFINE_ROW = np.array([0, 0, 0, 1], f32)
+
+
 class PrimitiveStore:
     """One row per UUID. ``alive`` marks existing primitives (deleted and skipped UUIDs are dead rows)."""
 
@@ -269,18 +272,16 @@ class PrimitiveStore:
         T(shift) * M for the others. ``idx`` is a slice or an index array."""
         M = self.T
         sub = M[idx]
-        aff = (sub[:, 12] == 0) & (sub[:, 13] == 0) & (sub[:, 14] == 0) & (sub[:, 15] == 1)
-        s0, s1, s2 = f32(shift[0]), f32(shift[1]), f32(shift[2])
-        if aff.all():
+        s = np.array([shift[0], shift[1], shift[2]], f32)
+        if (sub[:, 12:16] == _AFFINE_ROW).all():
+            # columns 3, 7, 11 (the translation column) each += its shift component
             if isinstance(idx, slice):
-                M[idx, 3] += s0
-                M[idx, 7] += s1
-                M[idx, 11] += s2
+                sub[:, 3:12:4] += s
             else:
-                M[idx, 3] = sub[:, 3] + s0
-                M[idx, 7] = sub[:, 7] + s1
-                M[idx, 11] = sub[:, 11] + s2
+                M[idx, 3:12:4] = sub[:, 3:12:4] + s
             return
+        s0, s1, s2 = s[0], s[1], s[2]
+        aff = (sub[:, 12] == 0) & (sub[:, 13] == 0) & (sub[:, 14] == 0) & (sub[:, 15] == 1)
         rows = np.arange(len(M))[idx]
         a, na = rows[aff], rows[~aff]
         M[a, 3] = M[a, 3] + s0

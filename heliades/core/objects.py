@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import functools
+import math
 
 import numpy as np
 
@@ -335,7 +336,100 @@ def _tube_triangle_index(nr: int, n: int):
 def _tube_frames(nodes, radius=None):
     """(radial, orthogonal) unit vectors per node: the parallel-transport frame shared verbatim by
     addTubeObject, Tube::appendTubeSegment and Tube::recomputeCrossSections. ``radius`` (if given) is
-    checked for negative entries node by node, as the first two do inside the loop."""
+    checked for negative entries, as the first two do inside the loop (the frame has no side effects, so
+    checking first raises the same error).
+
+    Everything that does not depend on the transported radial vector (axial directions, rotation axes and
+    angles, the radial-independent parts of rotatePointAboutLine) is computed for all nodes at once with the
+    scalar code's float32 op sequence; only the radial chain itself runs node by node."""
+    n = len(nodes)
+    if radius is not None:
+        for i in range(n):
+            if radius[i] < 0:
+                raise ValueError("addTubeObject: radius must be positive")
+    if n < 2:
+        return _tube_frames_scalar(nodes, radius)       # n == 1 raises IndexError, as Helios reads past the end
+    N = np.array([np.asarray(p, f32).reshape(3) for p in nodes], f32)
+    d = N[1:] - N[:-1]
+    A = np.empty((n, 3), f32)
+    A[0] = d[0]
+    A[n - 1] = d[n - 2]
+    if n > 2:
+        A[1:n - 1] = f32(0.5) * (d[:-1] + d[1:])
+    mag = np.sqrt((A[:, 0] * A[:, 0] + A[:, 1] * A[:, 1]) + A[:, 2] * A[:, 2])
+    small = mag < f32(1e-6)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        A = A * (f32(1.0) / mag)[:, None]
+    A[small] = (0, 0, 1)
+    X, Y = V.v3(1, 0, 0), V.v3(0, 1, 0)
+    # node 0
+    a0 = A[0]
+    initial_radial = X
+    if abs(V.dot(a0, initial_radial)) > f32(0.95):
+        initial_radial = Y
+    if abs(a0[2]) > f32(0.95):
+        initial_radial = X
+    R = np.empty((n, 3), f32)
+    R[0] = V.normalize(V.cross(a0, initial_radial))
+    # nodes 1..n-1: rotation axis cross(prev_axial, axial), angle acos(clamp(dot)) (double acos)
+    P, Q = A[:-1], A[1:]
+    rot = np.empty((n - 1, 3), f32)
+    rot[:, 0] = P[:, 1] * Q[:, 2] - P[:, 2] * Q[:, 1]
+    rot[:, 1] = P[:, 2] * Q[:, 0] - P[:, 0] * Q[:, 2]
+    rot[:, 2] = P[:, 0] * Q[:, 1] - P[:, 1] * Q[:, 0]
+    rmag = np.sqrt((rot[:, 0] * rot[:, 0] + rot[:, 1] * rot[:, 1]) + rot[:, 2] * rot[:, 2])
+    turn = rmag.astype(np.float64) > 1e-5
+    dots = np.clip((P[:, 0] * Q[:, 0] + P[:, 1] * Q[:, 1]) + P[:, 2] * Q[:, 2], f32(-1), f32(1))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        U = rot * (f32(1.0) / rmag)[:, None]                 # div(line_direction, mag)
+    u_, v_, w_ = U[:, 0], U[:, 1], U[:, 2]
+    zero = np.zeros(n - 1, f32)                           # line_base = (0, 0, 0)
+    with np.errstate(invalid="ignore"):
+        KX, KY, KZ = zero * (v_ * v_ + w_ * w_), zero * (u_ * u_ + w_ * w_), zero * (u_ * u_ + v_ * v_)
+        BX, BY, BZ = zero * v_ + zero * w_, zero * u_ + zero * w_, zero * u_ + zero * v_
+        CX, CY, CZ = -zero * v_ + zero * w_, zero * u_ - zero * w_, -zero * u_ + zero * v_
+    cols = [c.tolist() for c in (KX, KY, KZ, BX, BY, BZ, CX, CY, CZ)]
+    uu, vv, ww = u_.tolist(), v_.tolist(), w_.tolist()
+    rm, tl, dl = rmag.tolist(), turn.tolist(), dots.tolist()
+    x, y, z = (f32(c) for c in R[0])
+    for i in range(1, n):
+        k = i - 1
+        if tl[k]:
+            theta = f32(math.acos(dl[k]))
+            if theta != 0 and not f32(rm[k]) < f32(1e-6):     # else rotatePointAboutLine returns the point
+                st, ct = f32(math.sin(float(theta))), f32(math.cos(float(theta)))
+                one_ct = f32(1) - ct
+                u, v, w = f32(uu[k]), f32(vv[k]), f32(ww[k])
+                kx, ky, kz, bx, by, bz, cx, cy, cz = (f32(c[k]) for c in cols)
+                ix = ((bx - u * x) - v * y) - w * z
+                iy = ((by - u * x) - v * y) - w * z
+                iz = ((bz - u * x) - v * y) - w * z
+                px = ((kx - u * ix) * one_ct + x * ct) + ((cx - w * y) + v * z) * st
+                py = ((ky - v * iy) * one_ct + y * ct) + ((cy + w * x) - u * z) * st
+                pz = ((kz - w * iz) * one_ct + z * ct) + ((cz - v * x) + u * y) * st
+                x, y, z = px, py, pz
+        else:
+            fr = X
+            ax = A[i]
+            if abs(V.dot(ax, fr)) > f32(0.95):
+                fr = Y
+            if abs(ax[2]) > f32(0.95):
+                fr = X
+            x, y, z = (f32(c) for c in V.normalize(V.cross(ax, fr)))
+        R[i] = (x, y, z)
+    # orthogonal = normalize(cross(radial, axial)) (vec3::normalize keeps a zero vector)
+    C = np.empty((n, 3), f32)
+    C[:, 0] = R[:, 1] * A[:, 2] - R[:, 2] * A[:, 1]
+    C[:, 1] = R[:, 2] * A[:, 0] - R[:, 0] * A[:, 2]
+    C[:, 2] = R[:, 0] * A[:, 1] - R[:, 1] * A[:, 0]
+    m2 = (C[:, 0] * C[:, 0] + C[:, 1] * C[:, 1]) + C[:, 2] * C[:, 2]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        O = np.where((m2 <= 0)[:, None], C, C * (f32(1.0) / np.sqrt(m2))[:, None])
+    return [(R[i], O[i]) for i in range(n)]
+
+
+def _tube_frames_scalar(nodes, radius=None):
+    """Node-by-node reference of :func:`_tube_frames` (used for n < 2 and by the tests)."""
     n = len(nodes)
     X, Y, Z = V.v3(1, 0, 0), V.v3(0, 1, 0), V.v3(0, 0, 1)
     initial_radial = X.copy()

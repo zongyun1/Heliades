@@ -161,6 +161,22 @@ def set_polymesh_object_vertices(ctx, objID: int, vertices_global):
         p.transform = triangle_transform(W[face[0]], W[face[1]], W[face[2]])
 
 
+def _shift_rows(rows: list, shift, cast: bool = False):
+    """rows[i] = rows[i] + shift for every vec3 in the list, as one array op when the rows are float32 vec3s
+    (``cast``: rows[i] = _v(rows[i]) + shift). Each element gets the same single float32 addition."""
+    if not rows:
+        return
+    try:
+        A = np.array(rows, f32) if cast else np.array(rows)
+    except (ValueError, TypeError):
+        A = None
+    if A is not None and A.dtype == f32 and A.ndim == 2 and A.shape[1] == 3:
+        rows[:] = list(A + shift)
+        return
+    for i in range(len(rows)):
+        rows[i] = (_v(rows[i]) if cast else rows[i]) + shift
+
+
 def _v(x) -> np.ndarray:
     return np.asarray(x, f32).reshape(3).copy()
 
@@ -1527,27 +1543,27 @@ class Phytomer:
         shift = base_position - old_base
         self.seated_node_position = base_position.copy()
         for pv in self.petiole_vertices:
-            for i in range(len(pv)):
-                pv[i] = pv[i] + shift
+            _shift_rows(pv, shift)
         # Every object below gets the same shift exactly once, so the translateObject calls are made as one
         # (same objects, same order; a missing object raises at the same point).
         moved = list(self.getExistingPetioleObjIDs()) if self.build_context_geometry_petiole else []
         moved += [o for petiole in self.leaf_objIDs for o in petiole]
         for petiole in self.leaf_bases:
-            for i in range(len(petiole)):
-                petiole[i] = petiole[i] + shift
+            _shift_rows(petiole, shift)
         for k in list(self.leaf_stalk_base_placed):
             self.leaf_stalk_base_placed[k] = _v(self.leaf_stalk_base_placed[k]) + shift
         for petiole_peduncles in self.peduncle_vertices:
             for bud_vertices in petiole_peduncles:
-                for i in range(len(bud_vertices)):
-                    bud_vertices[i] = _v(bud_vertices[i]) + shift
-        for floral_bud in self.floral_buds:
-            for fbud in floral_bud:
-                fbud.base_position = tuple(_v(fbud.base_position) + shift)
-                moved += list(fbud.inflorescence_objIDs)
-                fbud.inflorescence_bases = [_v(b) + shift for b in fbud.inflorescence_bases]
-                if self.build_context_geometry_peduncle:
+                _shift_rows(bud_vertices, shift, cast=True)
+        fbuds = [fbud for floral_bud in self.floral_buds for fbud in floral_bud]
+        if fbuds:
+            bases = np.array([fbud.base_position for fbud in fbuds], f32).reshape(-1, 3) + shift   # _v(base) + shift
+            for fbud, b in zip(fbuds, bases):
+                fbud.base_position = tuple(b)
+                if fbud.inflorescence_objIDs:
+                    moved += list(fbud.inflorescence_objIDs)
+                fbud.inflorescence_bases = [_v(x) + shift for x in fbud.inflorescence_bases]
+                if self.build_context_geometry_peduncle and fbud.peduncle_objIDs:
                     moved += list(fbud.peduncle_objIDs)
         ctx.translate_object(moved, shift)
 

@@ -166,9 +166,9 @@ def test_mutations_are_caught(monkeypatch, mutation):
         monkeypatch.setattr(LAT, "_choose_target", lambda *a: (False, None))
         assert _fails("plantarch.pistachio.age170")
     elif mutation == "pistachio_tip_length":
-        # scaffolds are tipped at 0.45 m in their first season
+        # scaffolds are tipped at 0.45 m in their first season (late in it: not yet by day 220 on seed 1)
         monkeypatch.setattr(PI, "pistachio_scaffold_tip_length", f32(0.40))
-        assert _fails("plantarch.pistachio.age220")
+        assert _fails("plantarch.pistachio.age300")
     elif mutation == "growth_priority_gain":
         # the best-lit siblings are promoted by 1.6 at the season boundary
         monkeypatch.setattr(SE, "growth_priority_gain", f32(1.5))

@@ -29,7 +29,26 @@ shedding, pruning) is exercised and verified within the verified ages.
 
 ### Build time and size (seed 1, Helios vs Heliades, this machine, shared with other agents)
 
-TIMINGS
+| model | age | primitives | Helios | Heliades |
+|---|---|---|---|---|
+| almond | 0 | 1 700 | 0.02 s | 0.3 s |
+| almond | 548 | 32 138 | 0.55 s | 27 s |
+| almond | 913 | 84 618 | 2.3 s | 103 s |
+| almond_aldrich | 548 | 32 530 | 0.8 s | 32 s |
+| almond_independence | 548 | 23 814 | 0.7 s | 22 s |
+| almond_wood_colony | 548 | 21 318 | 0.5 s | 18 s |
+| pistachio | 548 | 78 244 | 0.8 s | 52 s (before the prim_batch speed-up; ~30 s after) |
+| walnut | 548 (seed 2) | 39 434 | 0.65 s | 14 s |
+
+Full `max_age` on Helios (not run on Heliades; at the observed ~40x the 3000-day almond would take ~4 h):
+almond 1825 d 44 s / 179 384 prims, 3000 d 337 s / 824 424; almond_aldrich 3000 d 131 s / 391 924;
+almond_independence 3000 d 143 s / 430 394; almond_wood_colony 1825 d 19 s / 98 328; pistachio 1825 d 20 s /
+1 299 310; walnut 1460 d 7.9 s / 195 726.
+
+The whole nut-tree suite (49 cases, all seeds) takes ~45 min on Heliades + Helios on this (shared) machine; the
+fast suite gains the six `params` cases, `trees.build_parameters`, two age-0 builds and the unit tests (~25 s).
+`grapevine_VSP` now also runs `season_step` (its 365-day period equals its max_age): no change in results
+(`grape.age76`, `grape.steps` pass), ~20% more time at age 76.
 
 ## Shared tree infrastructure (API for W5-E: apple, apple_fruitingwall, olive, easternredbud)
 
@@ -107,7 +126,7 @@ Mutation checks (`test_mutations_are_caught`; each caught):
 | pistachio scaffold roll drawn after the pitch | `pistachio.age0` |
 | walnut nodes not blind | `walnut.age170` |
 | leaf-angle tracking chooses no target | `pistachio.age170` |
-| pistachio tipping length 0.40 | `pistachio.age220` |
+| pistachio tipping length 0.40 | `pistachio.age300` (not yet tipped by day 220 on seed 1) |
 | growth priority gain 1.5 | `almond.age548` |
 | shedding threshold 0.80 | `almond.age732` |
 
@@ -129,7 +148,7 @@ Mutation checks (`test_mutations_are_caught`; each caught):
 * `library/__init__.py`: registers the six models; `library/build_parameters.py`: calls `trees.register_build_parameters`.
 * `tests/test_parity.py`: the slow nut-tree cases in `SLOW_CASES`.
 
-The existing parity cases and the fast suite are unaffected (see the final report).
+Fast suite: 390 passed, 172 skipped. Spot-checked existing slow cases `grape.age76` and `grape.steps` still pass.
 
 ## Helios findings / discrepancies
 

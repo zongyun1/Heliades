@@ -53,6 +53,12 @@ SLOW_CASES = {
     "plantarch.grapewye.age0_build_parameters", "plantarch.grapewye.steps", "plantarch.grapewye.age76",
     "plantarch.grapewye.age84", "plantarch.grapewye.age100", "plantarch.grapewye.small_age150",
 }
+# W5-D nut trees: everything but the parameter trees, the build-parameter checks and two age-0 builds
+from heliades.parity.suites.plantarch import cases_nut_trees as _NT  # noqa: E402
+
+SLOW_CASES |= {n for n in CASES if n.split(".")[1] in _NT.MODELS
+               and n not in {f"plantarch.{m}.params" for m in _NT.MODELS}
+               and n not in {"plantarch.almond_wood_colony.age0", "plantarch.pistachio.age0"}}
 
 
 @pytest.mark.parametrize("name", [pytest.param(n, marks=pytest.mark.slow) if n in SLOW_CASES else n

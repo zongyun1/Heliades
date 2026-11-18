@@ -56,7 +56,13 @@ def plant_structure_xml(pa, plantID: int) -> str:
         w(f"\t\t<minimum_leaf_texture_stage> {_i(inst.minimum_leaf_texture_stage)} </minimum_leaf_texture_stage>")
     w(f"\t\t<max_age> {cout(inst.max_age)} </max_age>")
     if inst.build_parameters or inst.organ_build_parameters:
-        raise NotImplementedError("writing build parameters is not ported")
+        # W5-D (IO:576-600): structure parameters at max_digits10 (9) significant digits
+        if any(getattr(d, "type", "constant") != "constant" for d in inst.organ_build_parameters.values()):
+            raise NotImplementedError("writing organ build-parameter distributions is not ported")
+        w(f"\t\t<plant_model> {inst.plant_name} </plant_model>")
+        for name in sorted(inst.build_parameters):
+            value = "%.9g" % float(f32(inst.build_parameters[name]))
+            w(f'\t\t<build_parameter name="{name}"> {value} </build_parameter>')
     if getattr(inst, "leaf_angle_tracking_enabled", False) and inst.leaf_angle_tracker.track_elevation:   # W5-B (IO:612)
         t = inst.leaf_angle_tracker
         w(f"\t\t<leaf_inclination_Beta_distribution> {cout(t.Beta_mu_inclination)} {cout(t.Beta_nu_inclination)} "
@@ -90,7 +96,13 @@ def plant_structure_xml(pa, plantID: int) -> str:
         if gs.internode_radius_cap > 0:
             w(f"\t\t\t<internode_radius_cap> {cout(gs.internode_radius_cap)} </internode_radius_cap>")
         if gs.geometry_is_prescribed:
-            raise NotImplementedError("writing prescribed shoot geometry is not ported")
+            # W5-D (IO:673-700): one node per phytomer (the base node, then each phytomer's last node)
+            nodes = [shoot.shoot_internode_vertices[0][0]] + [row[-1] for row in shoot.shoot_internode_vertices]
+            radii = [shoot.shoot_internode_radii[0][0]] + [row[-1] for row in shoot.shoot_internode_radii]
+            w("\t\t\t<prescribed_internode_nodes>" + "".join(f" {cout(n[0])} {cout(n[1])} {cout(n[2])}" for n in nodes)
+              + " </prescribed_internode_nodes>")
+            w("\t\t\t<prescribed_internode_radii>" + "".join(f" {cout(r)}" for r in radii)
+              + " </prescribed_internode_radii>")
 
         for phytomer_index, ph in enumerate(shoot.phytomers):
             _write_phytomer(w, shoot, ph, phytomer_index)

@@ -312,3 +312,5 @@ def register_build_parameters(pa):
     """The ``registerPlantModelBuildParameters`` calls of PL:511-535 for the models ported to Heliades."""
     from . import grapevine
     grapevine.register_build_parameters(pa)
+    from . import trees                                     # W5-D: the trained trees (PL:512-518)
+    trees.register_build_parameters(pa)

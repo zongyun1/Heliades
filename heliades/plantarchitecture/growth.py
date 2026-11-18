@@ -344,6 +344,9 @@ def _advance_plant_one_step(pa, plantID, dt):
             internode_length_max = shoot.internode_length_max_shoot_initial
             appendPhytomerToShoot(pa, plantID, shoot.ID, sp.phytomer_parameters, internode_radius, internode_length_max,
                                   f32(0.01), f32(0.01))
+            if getattr(inst, "leaf_angle_tracking_enabled", False) and shoot.phytomers:
+                from .leaf_angle_tracking import add_to_cohort             # W5-D (PA:12249)
+                add_to_cohort(inst, shoot.ID, len(shoot.phytomers) - 1)
             shoot.phyllochron_counter = f32(shoot.phyllochron_counter - shoot.phyllochron_instantaneous)
 
         if getattr(inst, "epicormic_shoot_label", ""):
@@ -352,7 +355,10 @@ def _advance_plant_one_step(pa, plantID, dt):
     # W5-D: cuts requested by this sub-step's phytomer callbacks (PA:12267)
     from .seasons import flushDeferredPrunes
     flushDeferredPrunes(pa)
-    # updatePlantLeafAngleDistributionTracking (off)
+    # W5-D: leaf angle distribution tracking (PA:12274; a no-op unless enabled for the plant)
+    if getattr(inst, "leaf_angle_tracking_enabled", False):
+        from .leaf_angle_tracking import updatePlantLeafAngleDistributionTracking
+        updatePlantLeafAngleDistributionTracking(pa, plantID)
     # W4-D: an attraction-steered phytomer forces the Context update (PA:12312-12326; collision detection is off)
     if pa.collision_avoidance_applied and pa.force_update_on_collision:
         tree[0].updateShootNodes(True)
@@ -493,7 +499,8 @@ def _break_vegetative_bud(pa, plantID, inst, shoot, phytomer, node_index, parent
     if phytomer.internode_radius_initial > 0:
         tree[childID].growth_state.internode_radius_cap = phytomer.internode_radius_initial
     if getattr(inst, "leaf_angle_tracking_enabled", False):
-        raise NotImplementedError("leaf angle tracking is not ported")
+        from .leaf_angle_tracking import add_to_cohort                 # W5-D (PA:12221)
+        add_to_cohort(inst, childID, 0)
     phytomer.setVegetativeBudState(BUD_DEAD, vbud)
     vbud.shoot_ID = childID
     tree[childID].isdormant = False

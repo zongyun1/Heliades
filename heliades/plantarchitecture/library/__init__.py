@@ -90,3 +90,7 @@ from . import walnut  # noqa: E402
 
 SHOOT_INITIALIZERS["walnut"] = walnut.initializeWalnutTreeShoots
 PLANT_BUILDERS["walnut"] = walnut.buildWalnutTree
+from . import pistachio  # noqa: E402
+
+SHOOT_INITIALIZERS["pistachio"] = pistachio.initializePistachioTreeShoots
+PLANT_BUILDERS["pistachio"] = pistachio.buildPistachioTree

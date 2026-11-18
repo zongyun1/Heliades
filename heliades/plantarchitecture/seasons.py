@@ -489,23 +489,63 @@ def updateShadowGrid(pa, plantID):
     inst.shadow_grid = ShadowGrid(leaf_bases)
 
 
+def _leaf_areas(pa, objIDs):
+    """(``getObjectArea``, ``getLeafBladeArea``) of each leaf object, bit-identical to the per-object calls
+    (``object_area``: member areas accumulated in double; blade: that minus each petiolule triangle, in float), with
+    the primitive areas computed in one batch (``prim_batch``). The petiolule members of a leaf are remembered
+    until its member count changes."""
+    from .prim_batch import areas_normals, padded, sequential_row_sums
+    ctx = pa.context_ptr
+    cache = pa.__dict__.setdefault("_w5d_petiolule_cache", {})
+    members, petiolule_pos = [], []
+    for objID in objIDs:
+        uu = ctx.object_primitive_uuids(objID)
+        uu = [u for u in uu if u in ctx.primitives]
+        hit = cache.get(objID)
+        if hit is None or hit[0] != len(uu):
+            pet = set(ctx.filter_primitives_by_data(uu, "object_label", "petiolule"))
+            hit = (len(uu), [i for i, u in enumerate(uu) if u in pet])
+            cache[objID] = hit
+        members.append(uu)
+        petiolule_pos.append(hit[1])
+    flat = [u for uu in members for u in uu]
+    if not flat:
+        return [f32(0)] * len(objIDs), [f32(0)] * len(objIDs)
+    prim_areas, _ = areas_normals(ctx, flat, want_normals=False)
+    sizes = [len(uu) for uu in members]
+    obj_area = sequential_row_sums(padded(sizes, prim_areas.astype(np.float64), np.float64)).astype(f32)
+    blade = obj_area.copy()
+    offsets = np.concatenate([[0], np.cumsum(sizes)[:-1]]).astype(np.int64)
+    width = max((len(p) for p in petiolule_pos), default=0)
+    for j in range(width):
+        rows = [i for i, p in enumerate(petiolule_pos) if len(p) > j]
+        idx = [offsets[i] + petiolule_pos[i][j] for i in rows]
+        blade[rows] = blade[rows] - prim_areas[idx]
+    return obj_area.tolist(), blade.tolist()
+
+
+def _plant_leaf_objIDs(inst):
+    return [objID for shoot in inst.shoot_tree for ph in shoot.phytomers for petiole in ph.leaf_objIDs
+            for objID in petiole]
+
+
 @ports("PlantArchitecture::sumPlantLeafArea")
 def sumPlantLeafArea(pa, plantID) -> np.float32:
-    from .phytomer import get_leaf_blade_area
+    _, blade = _leaf_areas(pa, _plant_leaf_objIDs(pa.plant_instances[plantID]))
     area = f32(0)
-    for shoot in pa.plant_instances[plantID].shoot_tree:
-        for ph in shoot.phytomers:
-            for petiole in ph.leaf_objIDs:
-                for objID in petiole:
-                    area = f32(area + get_leaf_blade_area(pa, objID))
+    for a in blade:
+        area = f32(area + f32(a))
     return area
 
 
 @ports("PlantArchitecture::captureSeasonPeakLeaves")
-def captureSeasonPeakLeaves(pa, plantID):
-    """PA:9244-9266."""
+def captureSeasonPeakLeaves(pa, plantID, object_areas=None):
+    """PA:9244-9266. ``object_areas`` optionally maps leaf objID -> getObjectArea, computed this sub-step."""
     ctx = pa.context_ptr
     inst = pa.plant_instances[plantID]
+    if object_areas is None:
+        ids = _plant_leaf_objIDs(inst)
+        object_areas = dict(zip(ids, _leaf_areas(pa, ids)[0]))
     positions, areas, shootIDs = [], [], []
     for shoot in inst.shoot_tree:
         for ph in shoot.phytomers:
@@ -515,7 +555,7 @@ def captureSeasonPeakLeaves(pa, plantID):
                     if not ctx.does_object_exist(objID):
                         continue
                     positions.append(np.asarray(ph.leaf_bases[petiole][leaf], f32))
-                    areas.append(ctx.object_area(objID))
+                    areas.append(f32(object_areas[objID]))
                     shootIDs.append(int(shoot.ID))
     inst.season_peak_leaf_positions = positions
     inst.season_peak_leaf_areas = areas
@@ -528,11 +568,15 @@ def season_step(pa, plantID):
         return
     inst = _season_state(pa.plant_instances[plantID])
     updateShadowGrid(pa, plantID)
-    current_leaf_area = sumPlantLeafArea(pa, plantID)
+    ids = _plant_leaf_objIDs(inst)
+    obj_areas, blade = _leaf_areas(pa, ids)
+    current_leaf_area = f32(0)
+    for a in blade:
+        current_leaf_area = f32(current_leaf_area + f32(a))
     if current_leaf_area > inst.season_peak_leaf_area:
         inst.season_peak_leaf_area = current_leaf_area
         inst.season_peak_shadow_grid = inst.shadow_grid
-        captureSeasonPeakLeaves(pa, plantID)
+        captureSeasonPeakLeaves(pa, plantID, dict(zip(ids, obj_areas)))
 
 
 @ports("PlantArchitecture::getShadowLightExposureAtPoint")

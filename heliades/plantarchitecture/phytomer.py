@@ -242,6 +242,26 @@ def get_leaf_blade_area(pa, leaf_objID: int) -> np.float32:
     return f32(area)
 
 
+@ports("nearestPointOnPolyline")
+def _nearest_point_on_polyline(line, point) -> np.ndarray:
+    """PA:278-294 (W5-D)."""
+    point = np.asarray(point, f32)
+    nearest = np.asarray(line[0], f32).copy()
+    best_distance = V.magnitude(point - nearest)
+    for i in range(len(line) - 1):
+        a = np.asarray(line[i], f32)
+        segment = np.asarray(line[i + 1], f32) - a
+        seg2 = V.dot(segment, segment)
+        t = f32(V.dot(point - a, segment) / seg2) if seg2 > 0 else f32(0)
+        t = min(max(t, f32(0)), f32(1))
+        candidate = a + t * segment
+        distance = V.magnitude(point - candidate)
+        if distance < best_distance:
+            best_distance = distance
+            nearest = candidate
+    return nearest
+
+
 # ---- leaf prototype cache records ------------------------------------------------------------------
 
 @dataclass
@@ -1603,7 +1623,16 @@ class Phytomer:
             ctx.translate_object(oid, f32(-1) * self.leaf_bases[p][leaf])
             ctx.scale_object(oid, (delta_scale, delta_scale, delta_scale))
             if pose_prescribed:
-                raise NotImplementedError("prescribed leaf poses (setPetioleLeafGeometry) are not ported")
+                # W5-D (PA:4489-4512): a posed leaf (e.g. one steered by leaf-angle tracking) keeps its offset from
+                # its nearest point on the petiole centerline as it stood before this step
+                petiole_base = pv[0].copy()
+                previous_centerline = [petiole_base + V.div(vtx - petiole_base, petiole_delta_scale) for vtx in pv]
+                previous_nearest = _nearest_point_on_polyline(previous_centerline, self.leaf_bases[p][leaf])
+                offset_from_centerline = np.asarray(self.leaf_bases[p][leaf], f32) - previous_nearest
+                prescribed_base = (petiole_base + (previous_nearest - petiole_base) * petiole_delta_scale
+                                   + offset_from_centerline)
+                ctx.translate_object(oid, prescribed_base)
+                self.leaf_bases[p][leaf] = prescribed_base
             elif ind_from_tip == 0:
                 ctx.translate_object(oid, pv[-1])
                 self.leaf_bases[p][leaf] = pv[-1].copy()

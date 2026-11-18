@@ -693,6 +693,18 @@ class FastSceneMixin:
         self.current_uuid = u + 1
         return u
 
+    def set_object_data(self, oids, label, value, dtype=None):
+        """setObjectData; re-setting one object's scalar to the bit-identical value it already holds is skipped."""
+        if dtype is None and isinstance(value, np.generic) and isinstance(oids, (int, np.integer)):
+            d = self.object_data.get(label)
+            e = d.get(int(oids)) if d else None
+            if (e is not None and len(e.values) == 1 and type(e.values[0]) is type(value)
+                    and int(oids) in self.objects):
+                if e.values[0].tobytes() != value.tobytes():      # same scalar type as the entry it replaces
+                    d[int(oids)] = type(e)(e.type, [value])
+                return
+        return super().set_object_data(oids, label, value, dtype)
+
     def _add_triangle_rows(self, Trows: np.ndarray, color) -> list[int]:
         """add_triangles with ready-made transforms (same UUIDs, materials and iteration order)."""
         from .scene import _color_rgba

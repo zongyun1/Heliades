@@ -1548,6 +1548,9 @@ class Phytomer:
         old_base = self.seated_node_position if not self.petiole_vertices else self.petiole_vertices[0][0]
         shift = base_position - old_base
         self.seated_node_position = base_position.copy()
+        if getattr(ctx, "mode", "exact") == "fast" and not shift.any():
+            # fast mode: a zero shift only changes the sign of zero coordinates (-0 + 0 = +0); skip the no-op work
+            return
         for pv in self.petiole_vertices:
             _shift_rows(pv, shift)
         # Every object below gets the same shift exactly once, so the translateObject calls are made as one

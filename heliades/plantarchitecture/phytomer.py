@@ -184,8 +184,8 @@ class OrganMaterial:
 def name_organ_materials(pa, objID: int, desired_base_name: str):
     ctx = pa.context_ptr
     groups: dict[str, list[int]] = {}
-    for u in ctx.object_primitive_uuids(objID):
-        label = ctx.get_primitive_material_label(u)
+    uu = ctx.object_primitive_uuids(objID)
+    for u, label in zip(uu, ctx.get_primitive_material_labels(uu)):
         if label[:7] == "__auto_":
             groups.setdefault(label, []).append(u)
     for automatic_label in sorted(groups):                    # std::map<std::string, ...> order
@@ -406,22 +406,30 @@ def detectAttractionPointsInCone(points, vertex, look_direction, look_ahead_dist
     half_angle_rad = f32(float(f32(half_angle_degrees)) * math.pi / 180.0)
     axis = V.normalize(look_direction)
     vertex = _v(vertex)
+    # vectorised over the points, each with the scalar op sequence: d = |p - v| (sqrtf((x*x + y*y) + z*z)),
+    # normalize = to * (1/sqrtf(m2)), dot left to right, std::min/std::max clamp (a NaN becomes 1), acosf
+    P = np.asarray(points, f32).reshape(-1, 3)
+    to = P - vertex
+    m2 = (to[:, 0] * to[:, 0] + to[:, 1] * to[:, 1]) + to[:, 2] * to[:, 2]
+    d = np.sqrt(m2)
+    keep = np.flatnonzero(~((d.astype(np.float64) <= 1e-6) | (d > look_ahead_distance)))
+    if not len(keep):
+        return None
+    t = to[keep]
+    nrm = t * (f32(1.0) / np.sqrt(m2[keep]))[:, None]
+    c = (axis[0] * nrm[:, 0] + axis[1] * nrm[:, 1]) + axis[2] * nrm[:, 2]
+    c = np.where(c < f32(1), c, f32(1))
+    c = np.where(c > f32(-1), c, f32(-1))
     found = False
     min_angular_distance = f32(np.finfo(np.float32).max)
     closest = None
-    for point in points:
-        to_point = point - vertex
-        d = V.magnitude(to_point)
-        if float(d) <= 1e-6 or d > look_ahead_distance:
-            continue
-        cos_angle = V.dot(axis, V.normalize(to_point))
-        cos_angle = max(f32(-1), min(f32(1), cos_angle))
+    for k, cos_angle in zip(keep.tolist(), c.tolist()):
         angle = V.acosf(cos_angle)
         if angle <= half_angle_rad:
             found = True
             if angle < min_angular_distance:
                 min_angular_distance = angle
-                closest = point
+                closest = P[k]
     if not found:
         return None
     return V.normalize(closest - vertex)
@@ -1511,9 +1519,10 @@ class Phytomer:
         for pv in self.petiole_vertices:
             for i in range(len(pv)):
                 pv[i] = pv[i] + shift
-        if self.build_context_geometry_petiole:
-            ctx.translate_object(self.getExistingPetioleObjIDs(), shift)
-        ctx.translate_object([o for petiole in self.leaf_objIDs for o in petiole], shift)
+        # Every object below gets the same shift exactly once, so the translateObject calls are made as one
+        # (same objects, same order; a missing object raises at the same point).
+        moved = list(self.getExistingPetioleObjIDs()) if self.build_context_geometry_petiole else []
+        moved += [o for petiole in self.leaf_objIDs for o in petiole]
         for petiole in self.leaf_bases:
             for i in range(len(petiole)):
                 petiole[i] = petiole[i] + shift
@@ -1526,10 +1535,11 @@ class Phytomer:
         for floral_bud in self.floral_buds:
             for fbud in floral_bud:
                 fbud.base_position = tuple(_v(fbud.base_position) + shift)
-                ctx.translate_object(list(fbud.inflorescence_objIDs), shift)
+                moved += list(fbud.inflorescence_objIDs)
                 fbud.inflorescence_bases = [_v(b) + shift for b in fbud.inflorescence_bases]
                 if self.build_context_geometry_peduncle:
-                    ctx.translate_object(list(fbud.peduncle_objIDs), shift)
+                    moved += list(fbud.peduncle_objIDs)
+        ctx.translate_object(moved, shift)
 
     @ports("Phytomer::setLeafScaleFraction(uint,float)")
     def setLeafScaleFraction(self, petiole_index: int, leaf_scale_factor_fraction):

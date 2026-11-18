@@ -631,18 +631,18 @@ def _grapevine_fruit_prototype(context_ptr, subdivisions, build_parameters=None)
             with np.errstate(divide="ignore", invalid="ignore"):
                 s = (f32(0.5) * overlap) / dist
                 P = S * s[..., None]
-            mask = upper & (overlap > 0) & (dist > 0)
-            disp = np.zeros((n, 3), f32)
-            for i in range(n - 1):                     # disp_k -= push(i, k), i ascending, for every k > i
-                m = mask[i, i + 1:]
-                if m.any():
-                    sub = disp[i + 1:]
-                    sub[m] = sub[m] - P[i, i + 1:][m]
-            for j in range(1, n):                      # then disp_k += push(k, j), j ascending, for every k < j
-                m = mask[:j, j]
-                if m.any():
-                    sub = disp[:j]
-                    sub[m] = sub[m] + P[:j, j][m]
+            mask = (upper & (overlap > 0) & (dist > 0))[..., None]
+            # disp_k -= push(i, k) for i ascending (k > i), then disp_k += push(k, j) for j ascending (k < j),
+            # as running float32 sums (ufunc.accumulate is strictly sequential along the axis). Pairs that do
+            # not push contribute an exact no-op: subtracting +0 and adding -0 leave every float (and the sign
+            # of a zero) unchanged.
+            acc = np.empty((n + 1, n, 3), f32)
+            acc[0] = 0
+            acc[1:] = np.where(mask, P, f32(0))                     # [i, k]
+            disp = np.subtract.accumulate(acc, axis=0)[-1]
+            acc[0] = disp
+            acc[1:] = np.where(mask, P, f32(-0.0)).transpose(1, 0, 2)  # [j, k]
+            disp = np.add.accumulate(acc, axis=0)[-1]
             C = C + disp
         cx = C[:, 0]
         cx = np.where(cx < radii, radii, np.where(cx > x_hi, x_hi, cx))
@@ -666,20 +666,26 @@ def _add_sphere(ctx, ndivs, center, radius, color):
     dphi = f32(f32(f32(2) * PI_F) / f32(ndivs))
     half = f32(f32(0.5) * PI_F)
 
+    memo = {}
+
     def p(el, az):
         el, az = f32(el), f32(az)
-        rc = f32(radius * cosf(el))
-        return center + np.array([f32(rc * sinf(az)), f32(rc * cosf(az)), f32(radius * sinf(el))], f32)
+        k = (el.tobytes(), az.tobytes())             # by bit pattern (-0 is not 0 here)
+        v = memo.get(k)
+        if v is None:                               # a pure function of (el, az): computed once per grid point
+            rc = f32(radius * cosf(el))
+            v = memo[k] = center + np.array([f32(rc * sinf(az)), f32(rc * cosf(az)), f32(radius * sinf(el))], f32)
+        return v
 
-    uu = []
+    tris = []                                       # the triangles in Context::addSphere's order, added in one batch
     for j in range(ndivs):
-        uu.append(ctx.add_triangle(p(-half, 0), p(f32(-half + dtheta), f32(f32(j) * dphi)),
-                                   p(f32(-half + dtheta), f32(f32(j + 1) * dphi)), color))
+        tris.append((p(-half, 0), p(f32(-half + dtheta), f32(f32(j) * dphi)),
+                     p(f32(-half + dtheta), f32(f32(j + 1) * dphi))))
     for j in range(ndivs):
         v0 = p(half, 0)
         v1 = p(f32(half - dtheta), f32(f32(j) * dphi))
         v2 = p(f32(half - dtheta), f32(f32(j + 1) * dphi))
-        uu.append(ctx.add_triangle(v2, v1, v0, color))
+        tris.append((v2, v1, v0))
     for j in range(ndivs):
         for i in range(1, ndivs - 1):
             a, b = f32(-half + f32(f32(i) * dtheta)), f32(-half + f32(f32(i + 1) * dtheta))
@@ -687,9 +693,9 @@ def _add_sphere(ctx, ndivs, center, radius, color):
             v1 = p(b, f32(f32(j) * dphi))
             v2 = p(b, f32(f32(j + 1) * dphi))
             v3 = p(a, f32(f32(j + 1) * dphi))
-            uu.append(ctx.add_triangle(v0, v1, v2, color))
-            uu.append(ctx.add_triangle(v0, v2, v3, color))
-    return uu
+            tris.append((v0, v1, v2))
+            tris.append((v0, v2, v3))
+    return ctx.add_triangles([t[0] for t in tris], [t[1] for t in tris], [t[2] for t in tris], color)
 
 
 __all__ = ["initializeGrapevineVSPShoots", "buildGrapevineVSP", "grapevineTrunkPath", "BoundedWander",

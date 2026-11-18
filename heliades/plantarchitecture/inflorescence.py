@@ -160,10 +160,18 @@ def make_closed_fruit_surfaces_one_sided(ctx, objID: int, fruit_material_name: s
         vertex_cells.setdefault(cell, []).append(len(welded) - 1)
         return len(welded) - 1
 
-    faces = []
-    for u in UUIDs:
-        faces.append([weld(_v(v)) for v in ctx.primitive_vertices(u)])
+    Vt, nv = ctx.primitive_vertices_rows(UUIDs)
+    fast = _weld_exact_duplicates(Vt, nv, tolerance)
+    if fast is not None:
+        faces, welded = fast
+    else:
+        faces = []
+        for i in range(len(UUIDs)):
+            faces.append([weld(_v(v)) for v in Vt[i, :nv[i]]])
+    terms = _face_volume_terms(faces, welded)
 
+    closed_for: dict = {}                 # face material label -> closed material label (None: one-sided already)
+    pending: dict = {}                    # closed material label -> UUIDs, in face order
     parent = list(range(len(faces)))
 
     def root(i):
@@ -192,8 +200,8 @@ def make_closed_fruit_surfaces_one_sided(ctx, objID: int, fruit_material_name: s
             for k in range(len(f)):
                 e = (f[k], f[(k + 1) % len(f)])
                 directed_edges[e] = directed_edges.get(e, 0) + 1
-            for k in range(1, len(f) - 1):
-                volume += float(V.dot(welded[f[0]], V.cross(welded[f[k]], welded[f[k + 1]]))) / 6.0
+            for t in terms[face]:
+                volume += t / 6.0
         closed_and_oriented = True
         for edge in sorted(directed_edges):               # std::map order (only the outcome matters)
             n = directed_edges[edge]
@@ -206,7 +214,12 @@ def make_closed_fruit_surfaces_one_sided(ctx, objID: int, fruit_material_name: s
         for face in part:
             UUID = UUIDs[face]
             material = ctx.get_primitive_material_label(UUID)
+            if material in closed_for:            # the decision below depends on the material only
+                if closed_for[material] is not None:
+                    pending.setdefault(closed_for[material], []).append(UUID)
+                continue
             if ctx.get_material_twosided_flag(material) == 0:
+                closed_for[material] = None
                 continue
             base_label = (fruit_material_name if material[:2] == "__" else material) + "_closed"
 
@@ -233,7 +246,111 @@ def make_closed_fruit_surfaces_one_sided(ctx, objID: int, fruit_material_name: s
                 ctx.set_material_texture_color_override(closed_material,
                                                         ctx.is_material_texture_color_overridden(material))
                 ctx.set_material_twosided_flag(closed_material, 0)
-            ctx.assign_material_to_primitive(UUID, closed_material)
+            closed_for[material] = closed_material
+            pending.setdefault(closed_material, []).append(UUID)
+    # assignments only change the assigned primitive's material (same texture, so no solid-fraction
+    # update), so doing them after the loop, label by label, gives the same Context
+    for label, uu in pending.items():
+        ctx.assign_material_to_primitive(uu, label)
+
+
+def _weld_exact_duplicates(Vt, nv, tolerance):
+    """Fast exact path of the sequential vertex weld in makeClosedFruitSurfacesOneSided.
+
+    The weld visits each vertex in order and returns the first already-welded vertex within ``tolerance`` found
+    in the 27 neighbouring cells, else appends it. Call two distinct vertex values *in conflict* when they lie in
+    neighbouring cells within ``tolerance`` (the only pairs the weld can merge). Equal values always merge. A
+    vertex only ever matches values of its own connected conflict component, and when every component is a
+    clique the first-occurring value of the component is welded and every later vertex of the component
+    matches it. So the weld is "map each value to its component's first value, numbered by first occurrence",
+    computed here with array operations. Returns (faces, welded), or None when some component is not a clique
+    or a vertex is not finite (then the caller welds one by one)."""
+    mask = np.arange(4)[None, :] < np.asarray(nv)[:, None]
+    P = Vt[mask]
+    if not len(P) or not np.isfinite(P).all():
+        return None
+    key = np.ascontiguousarray(P + f32(0))                    # -0 -> +0: equal values weld together
+    _, first, inverse = np.unique(key.view(np.dtype((np.void, 12))).reshape(-1), return_index=True,
+                                  return_inverse=True)
+    order = np.argsort(first, kind="stable")
+    rank = np.empty(len(first), np.int64)
+    rank[order] = np.arange(len(first))
+    U = P[first[order]]                          # distinct values in first-occurrence order (first occurrence's bits)
+    occ = rank[inverse.reshape(-1)]              # value index of every vertex
+    n = len(U)
+    cells = np.floor(U / tolerance).astype(np.int64)     # floor(vertex.x / tolerance), as the weld computes it
+    c = cells - (cells.min(0) - 1)
+    dims = c.max(0) + 2
+    if float(dims[0]) * float(dims[1]) * float(dims[2]) > 2 ** 62:
+        return None
+    ck = (c[:, 0] * dims[1] + c[:, 1]) * dims[2] + c[:, 2]
+    srt = np.argsort(ck, kind="stable")
+    sk = ck[srt]
+    ei, ej = [], []
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                q = ck + (dx * dims[1] + dy) * dims[2] + dz
+                lo = np.searchsorted(sk, q, "left")
+                cnt = np.searchsorted(sk, q, "right") - lo
+                tot = int(cnt.sum())
+                if not tot:
+                    continue
+                ii = np.repeat(np.arange(n), cnt)
+                start = np.repeat(lo - (np.cumsum(cnt) - cnt), cnt)
+                jj = srt[start + np.arange(tot)]
+                keep = ii < jj
+                ii, jj = ii[keep], jj[keep]
+                d = U[jj] - U[ii]
+                m = np.sqrt((d[:, 0] * d[:, 0] + d[:, 1] * d[:, 1]) + d[:, 2] * d[:, 2])
+                hit = m <= tolerance
+                ei.append(ii[hit])
+                ej.append(jj[hit])
+    rep = np.arange(n)
+    if ei:
+        ei, ej = np.concatenate(ei), np.concatenate(ej)
+    if len(ei):
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import connected_components
+        e = np.unique(ei * n + ej)                       # undirected edges i < j, each once
+        ei, ej = e // n, e % n
+        ncomp, comp = connected_components(coo_matrix((np.ones(len(ei)), (ei, ej)), shape=(n, n)), directed=False)
+        size = np.bincount(comp, minlength=ncomp)
+        edges = np.bincount(comp[ei], minlength=ncomp)
+        if (edges != size * (size - 1) // 2).any():      # a chain: the greedy order matters, weld one by one
+            return None
+        cmin = np.full(ncomp, n, np.int64)
+        np.minimum.at(cmin, comp, np.arange(n))
+        rep = cmin[comp]
+    reps = np.unique(rep)                                 # welded values, ascending = first-occurrence order
+    widx = np.searchsorted(reps, rep)
+    idx = widx[occ].tolist()
+    faces, k = [], 0
+    for m_ in np.asarray(nv).tolist():
+        faces.append(idx[k:k + m_])
+        k += m_
+    return faces, [w for w in U[reps]]
+
+
+def _face_volume_terms(faces, welded):
+    """Per face, the float(dot(w[f0], cross(w[fk], w[fk+1]))) terms of the signed volume (k = 1..len-2)."""
+    W = np.asarray(welded, f32).reshape(-1, 3)
+    out = [[] for _ in faces]
+    for k in (1, 2):
+        sel = [i for i, f in enumerate(faces) if len(f) - 1 > k]
+        if not sel:
+            continue
+        a = W[[faces[i][0] for i in sel]]
+        b = W[[faces[i][k] for i in sel]]
+        c = W[[faces[i][k + 1] for i in sel]]
+        x = np.empty_like(b)
+        x[:, 0] = b[:, 1] * c[:, 2] - b[:, 2] * c[:, 1]
+        x[:, 1] = b[:, 2] * c[:, 0] - b[:, 0] * c[:, 2]
+        x[:, 2] = b[:, 0] * c[:, 1] - b[:, 1] * c[:, 0]
+        d = (a[:, 0] * x[:, 0] + a[:, 1] * x[:, 1]) + a[:, 2] * x[:, 2]
+        for i, t in zip(sel, d.tolist()):
+            out[i].append(t)
+    return out
 
 
 @ports("recordFruitClassMap")

@@ -206,6 +206,49 @@ class OrganMaterial:
     texture_color_overridden: bool = False
 
 
+def _organ_material_set(pa, key, om):
+    """``organ_material_labels[key] = om``, keeping the per-base-name index of :func:`_organ_material_index` current."""
+    import bisect
+    pa.organ_material_labels[key] = om
+    cache = pa.__dict__.get("_organ_material_cache")
+    if cache is None or cache[0] != id(pa.organ_material_labels):
+        return
+    ent = cache[1].get(key[1])
+    if ent is None:
+        return
+    keys, objs, C, tex, ovr = ent
+    i = bisect.bisect_left(keys, key)
+    col = np.asarray(om.color, f32)[:4].reshape(1, 4)
+    if i < len(keys) and keys[i] == key:
+        objs[i] = om
+        C[i] = col
+        tex[i] = om.texture_file
+        ovr[i] = bool(om.texture_color_overridden)
+        return
+    keys.insert(i, key)
+    objs.insert(i, om)
+    cache[1][key[1]] = (keys, objs, np.insert(C, i, col, axis=0), tex[:i] + [om.texture_file] + tex[i:],
+                        np.insert(ovr, i, bool(om.texture_color_overridden)))
+
+
+def _organ_material_index(pa, base: str):
+    """The ``organ_material_labels`` entries with this base name, in std::map key order (sorted keys), with their
+    colors and override flags as arrays and texture files as a list (kept current by :func:`_organ_material_set`)."""
+    d = pa.organ_material_labels
+    cache = pa.__dict__.get("_organ_material_cache")
+    if cache is None or cache[0] != id(d):
+        cache = (id(d), {})
+        pa.__dict__["_organ_material_cache"] = cache
+    hit = cache[1].get(base)
+    if hit is None:
+        keys = [k for k in sorted(d) if k[1] == base]
+        objs = [d[k] for k in keys]
+        C = np.array([np.asarray(o.color, f32)[:4] for o in objs], f32).reshape(-1, 4)
+        hit = cache[1][base] = (keys, objs, C, [o.texture_file for o in objs],
+                                np.array([bool(o.texture_color_overridden) for o in objs], bool))
+    return hit
+
+
 @ports("PlantArchitecture::nameOrganMaterials")
 def name_organ_materials(pa, objID: int, desired_base_name: str):
     ctx = pa.context_ptr
@@ -224,18 +267,18 @@ def name_organ_materials(pa, objID: int, desired_base_name: str):
         automatic = ctx.get_material(ctx.get_primitive_material_id(prims[0]))
         acol = np.asarray(automatic.color, f32)
         same = None
-        for other_key in sorted(pa.organ_material_labels):    # std::map<pair<string,string>, ...> order
-            other = pa.organ_material_labels[other_key]
-            if (other_key[1] != desired_base_name or not ctx.does_material_exist(other.label)
-                    or other.texture_file != automatic.texture_file
-                    or other.texture_color_overridden != automatic.texture_color_overridden):
-                continue
-            if all(abs(f32(other.color[k] - acol[k])) < f32(1e-4) for k in range(4)):
-                same = other
-                break
+        # the first entry in std::map<pair<string,string>, ...> order with this base name, an existing material, the
+        # same texture / override and every color component within 1e-4 (float32 compare, batched over the entries)
+        _, objs, C, tex, ovr = _organ_material_index(pa, desired_base_name)
+        if objs:
+            ok = (np.abs(C - acol[:4]) < f32(1e-4)).all(1) & (ovr == bool(automatic.texture_color_overridden))
+            for i in np.flatnonzero(ok).tolist():
+                if tex[i] == automatic.texture_file and ctx.does_material_exist(objs[i].label):
+                    same = objs[i]
+                    break
         if same is not None:
             ctx.assign_material_to_primitive(prims, same.label)
-            pa.organ_material_labels[key] = same
+            _organ_material_set(pa, key, same)
             continue
         label = desired_base_name
         suffix = 1
@@ -252,8 +295,8 @@ def name_organ_materials(pa, objID: int, desired_base_name: str):
             ctx.set_material_texture_color_override(label, automatic.texture_color_overridden)
             ctx.set_material_twosided_flag(label, automatic.twosided_flag)
             ctx.assign_material_to_primitive(prims, label)
-        pa.organ_material_labels[key] = OrganMaterial(label, acol.copy(), automatic.texture_file,
-                                                      automatic.texture_color_overridden)
+        _organ_material_set(pa, key, OrganMaterial(label, acol.copy(), automatic.texture_file,
+                                                   automatic.texture_color_overridden))
 
 
 @ports("PlantArchitecture::getLeafBladeArea")
@@ -1119,7 +1162,7 @@ class Phytomer:
                 c = self.phytomer_parameters.petiole.color
                 rgba = np.array([c[0], c[1], c[2], 1], f32)
                 ctx.set_material_color(material_label, rgba)
-                pa.organ_material_labels[("", material_label)] = OrganMaterial(material_label, rgba, "", False)
+                _organ_material_set(pa, ("", material_label), OrganMaterial(material_label, rgba, "", False))
         ctx.assign_material_to_primitive(petiolule, material_label)
 
     # ---- orientation ----------------------------------------------------------------------------

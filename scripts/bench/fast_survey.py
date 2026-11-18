@@ -6,8 +6,8 @@
     python scripts/bench/fast_survey.py --distribution 1-32 --out dist.jsonl grapevine_VSP
 
 ``--sensitivity`` measures the floor fast mode cannot go below: exact mode against exact mode with every leaf area
-read (every batched primitive area, which ``getObjectArea`` and the leaf / season bookkeeping use)
-moved by one float32 ulp up or down (a fixed pattern per UUID).
+read (every batched primitive area, which ``getObjectArea`` and the leaf / season bookkeeping use) moved by
+one float32 ulp, up and then down (the larger deviation is kept).
 ``--distribution`` records the plant metrics of every seed in both modes (for ``compare_distributions``).
 """
 from __future__ import annotations
@@ -48,25 +48,32 @@ def _check(job):
 
 
 def _sensitivity(job):
+    """Exact against exact with every batched primitive area moved one float32 ulp up, then down; the larger
+    deviation of the two (topology: both unchanged)."""
     model, age, seed = job
     import numpy as np
     from heliades.core.store import PrimitiveStore
     from heliades.parity.fastmode import compare, record
     a = record(model, age, seed, "exact")
     orig = PrimitiveStore.areas_rows
-
-    def bumped(self, idx, V=None):
-        A = orig(self, idx, V)
-        up = (np.asarray(idx, np.int64) * 2654435761 >> 7) & 1          # a fixed +-1 ulp pattern per UUID
-        return np.where(up == 1, np.nextafter(A, np.float32(np.inf)), np.nextafter(A, np.float32(-np.inf))).astype(np.float32)
-    PrimitiveStore.areas_rows = bumped
-    try:
-        b = record(model, age, seed, "exact")
-    finally:
-        PrimitiveStore.areas_rows = orig
-    r = compare(a, b)
-    r["kind"] = "sensitivity"
-    return r
+    out = None
+    for direction in (np.inf, -np.inf):
+        def bumped(self, idx, V=None, _d=np.float32(direction)):
+            return np.nextafter(orig(self, idx, V), _d).astype(np.float32)
+        PrimitiveStore.areas_rows = bumped
+        try:
+            b = record(model, age, seed, "exact")
+        finally:
+            PrimitiveStore.areas_rows = orig
+        r = compare(a, b)
+        if out is None:
+            out = r
+        else:
+            out["topology"] = out["topology"] and r["topology"]
+            out["rel_dev"] = max(out.get("rel_dev", np.inf), r.get("rel_dev", np.inf))
+            out["max_dev"] = max(out.get("max_dev", np.inf), r.get("max_dev", np.inf))
+    out["kind"] = "sensitivity"
+    return out
 
 
 def _metrics(job):

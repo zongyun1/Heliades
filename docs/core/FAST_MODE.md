@@ -26,8 +26,12 @@ The plant-architecture code does not know about the mode, except three model-lev
 
 ## What fast mode guarantees
 
-* **The same random draws** as exact mode (and so Helios): same number, same order, same final generator state, for
-  every model of the library (checked for all 32 models, seeds 1..8).
+* **The same random draws** as exact mode (and so Helios): same number, same order, same final generator state.
+  Fast mode itself never draws and every draw-dependent branch reads plant-side state, object matrices or tube
+  nodes/radii, which are exact. The only way the streams part is a growth decision that reads geometry flipping and
+  changing the plant (then later draws follow the other plant): this happened once in all the runs (pistachio seed 19
+  of 32: 352 instead of 336 fruits, 15516 instead of 15449 draws), and exact mode with every primitive area moved one
+  float32 ulp up builds exactly the fast-mode plant, draws included. All 32 models x seeds 1..8: same draws.
 * **Bit-identical object matrices and tube nodes/radii.** Object transforms update the object matrix with exact
   mode's float32 operations; tube bakes use exact mode's float32 node/radius arithmetic. Only member primitive
   matrices (and the tube ring vertices) are approximated.
@@ -58,8 +62,9 @@ The plant-architecture code does not know about the mode, except three model-lev
   leaf / fruit counts, leaf area, height, bounding box).
 * **The sign of zero.** Fast mode skips some no-op work (a zero petiole-base shift, re-setting a data value to the
   same bits), which in Helios turns `-0` coordinates into `+0`.
-* **Helios's error-path partial updates.** A transform call on a list with a missing object raises before changing
-  anything (exact mode, like Helios, changes the objects before it first).
+* **Helios's error-path partial updates** for rotations and scales: a call on a list with a missing object raises
+  before changing anything (exact mode, like Helios, changes the objects before it first). Fast mode also assumes
+  affine object matrices for its pending member transforms (every Context object is).
 * Model-level fast paths: grape cluster packing sums overlap pushes in any order; the fruit vertex weld welds near
   vertex chains to one vertex instead of falling back on the sequential greedy weld; both change the result by
   rounding only on the library models (same materials and topology).

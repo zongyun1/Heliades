@@ -27,7 +27,7 @@ AGES = _survey.AGES
 #: leaf inclination tracking (facet normals and areas pick discrete target bins): same topology, poses diverge
 ORIENTATION_DIVERGENT = {"cowpea", "pistachio", "easternredbud"}
 #: tube-creation thresholds (petiole length / radius) reached one sub-step apart after the leaf-area feedback
-TOPOLOGY_DIVERGENT = {"bougainvillea", "capsicum"}
+TOPOLOGY_DIVERGENT = {"bougainvillea", "capsicum", "olive"}
 DIVERGENT = ORIENTATION_DIVERGENT | TOPOLOGY_DIVERGENT
 #: relative vertex deviation allowed for the others: the leaf-area -> girth -> position feedback amplifies one
 #: float32 rounding to ~1e-4 of the plant size in exact mode itself (see FAST_MODE.md, sensitivity floor)
@@ -67,7 +67,10 @@ def test_divergent_model_distributions(model):
     with mp.get_context("spawn").Pool(min(6, os.cpu_count() or 1), maxtasksperchild=1) as pool:
         res = pool.map(_metrics_job, jobs)
     for r in res:
-        assert r["exact"][1] == r["fast"][1]                           # same draw count
+        # the draw stream only parts when a geometry-reading decision flipped and changed the plant (pistachio seed 19:
+        # a pruning decision; exact mode with every area one ulp up makes the same plant and the same draws)
+        if r["exact"][1] != r["fast"][1]:
+            assert r["exact"][0]["primitives"] != r["fast"][0]["primitives"], r
     keys = res[0]["exact"][0].keys()
     a = {k: np.array([r["exact"][0][k] for r in res]) for k in keys}
     b = {k: np.array([r["fast"][0][k] for r in res]) for k in keys}

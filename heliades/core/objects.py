@@ -3,8 +3,6 @@
 """Compound objects: tile, tube, polymesh, and object queries (mixed into Scene)."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 import numpy as np
 
 from . import vec as V
@@ -17,14 +15,43 @@ from .primitives import make_rotation_matrix, make_scale_matrix, make_translatio
 OBJECT_TILE, OBJECT_SPHERE, OBJECT_TUBE, OBJECT_BOX, OBJECT_DISK, OBJECT_POLYMESH, OBJECT_CONE = range(7)
 
 
-@dataclass
 class CompoundObject:
-    oid: int
-    type: int
-    uuids: list[int]
-    transform: np.ndarray = field(default_factory=lambda: np.eye(4, dtype=f32).reshape(16))
-    origin: np.ndarray = field(default_factory=lambda: np.zeros(3, f32))
-    extra: dict = field(default_factory=dict)
+    """oid, type, member UUIDs (in object order), the object transform, origin and type-specific data
+    (``extra``, in the object's local frame). ``member_index()`` caches the members as a slice (when they
+    are consecutive UUIDs, the usual case) or an index array, for the batched row operations."""
+
+    __slots__ = ("oid", "type", "_uuids", "transform", "origin", "extra", "_ix")
+
+    def __init__(self, oid: int, type: int, uuids, transform=None, origin=None, extra=None):
+        self.oid = oid
+        self.type = type
+        self.uuids = uuids
+        self.transform = np.eye(4, dtype=f32).reshape(16) if transform is None else transform
+        self.origin = np.zeros(3, f32) if origin is None else origin
+        self.extra = {} if extra is None else extra
+
+    @property
+    def uuids(self) -> list[int]:
+        return self._uuids
+
+    @uuids.setter
+    def uuids(self, uu):
+        self._uuids = list(uu)
+        self._ix = None
+
+    def member_index(self):
+        """The member UUIDs as ``slice(a, b)`` if they are a, a+1, ..., b-1, else an int64 array."""
+        if self._ix is None:
+            ix = np.asarray(self._uuids, np.int64)
+            n = len(ix)
+            if n and ix[0] >= 0 and ix[-1] - ix[0] == n - 1 and (n == 1 or bool((ix[1:] - ix[:-1] == 1).all())):
+                self._ix = slice(int(ix[0]), int(ix[-1]) + 1)
+            else:
+                self._ix = ix
+        return self._ix
+
+    def __repr__(self):
+        return f"CompoundObject(oid={self.oid}, type={self.type}, n={len(self._uuids)})"
 
 
 class ObjectsMixin:
@@ -233,11 +260,11 @@ class ObjectsMixin:
         obj = self.objects.get(int(oid))
         if obj is None:
             raise ValueError(f"ERROR (Context::getObjectPointer): Object ID of {oid} does not exist in the Context.")
+        ix = self._alive_members(obj)
+        rows = np.arange(self._store.n)[ix] if isinstance(ix, slice) else ix
         area = 0.0
-        for u in obj.uuids:
-            p = self.primitives.get(u)
-            if p is not None:
-                area += float(p.area())
+        for a in self._store.areas_rows(rows).tolist():     # in member order, double accumulator
+            area += a
         return f32(area)
 
     @ports("Context::getObjectPrimitiveCount")
@@ -262,7 +289,14 @@ class ObjectsMixin:
 
     @ports("Context::getObjectBoundingBox")
     def object_bounding_box(self, oid: int):
-        V_ = np.concatenate([self.primitives[u].vertices() for u in self.objects[oid].uuids])
+        obj = self.objects[oid]
+        st = self._store
+        ix = np.asarray(obj.uuids, np.int64)
+        if not len(ix) or not ((ix >= 0) & (ix < st.n)).all() or not st.alive[ix].all():
+            V_ = np.concatenate([self.primitives[u].vertices() for u in obj.uuids])   # raises like before
+            return V_.min(0), V_.max(0)
+        V_, nv = st.vertices_rows(ix)
+        V_ = V_[np.arange(4)[None, :] < nv[:, None]]
         return V_.min(0), V_.max(0)
 
     @ports("Context::getObjectCenter")
@@ -407,6 +441,7 @@ class TubeEditMixin:
         """Rebuild every member triangle from the rings, by position in the UUID list (radial slot
         slowest, segment fastest): Context::setTriangleVertices -> Triangle::makeTransformationMatrix."""
         from .primitives import TRIANGLE, triangle_transform
+        from .store import triangle_transform_rows
         tv, nr, n = obj.extra["triangle_vertices"], int(obj.extra["subdiv"]), len(obj.extra["nodes"])
         uu = obj.uuids
 
@@ -419,6 +454,22 @@ class TubeEditMixin:
                 raise ValueError(f"ERROR (Context::setTriangleVertices): UUID {uu[k]} is not a triangle in the Context.")
             p.transform = triangle_transform(v0, v1, v2)
 
+        m = 2 * nr * max(n - 1, 0)
+        st = self._store
+        ix = np.asarray(uu[:m], np.int64)
+        if m and len(ix) == m and ((ix >= 0) & (ix < st.n)).all() and st.alive[ix].all() \
+                and (st.ptype[ix] == TRIANGLE).all():
+            # batched (every row the same op sequence as triangle_transform); k = 2 * (j * (n-1) + i) + {0, 1}
+            A = np.asarray(tv, f32)
+            J, I = np.meshgrid(np.arange(nr), np.arange(n - 1), indexing="ij")
+            J, I = J.reshape(-1), I.reshape(-1)
+            v0 = np.repeat(A[I, J], 2, axis=0)
+            v1 = np.empty((m, 3), f32)
+            v2 = np.empty((m, 3), f32)
+            v1[0::2], v2[0::2] = A[I + 1, J + 1], A[I, J + 1]
+            v1[1::2], v2[1::2] = A[I + 1, J], A[I + 1, J + 1]
+            st.T[ix] = triangle_transform_rows(v0, v1, v2)
+            return
         ii = 0
         for j in range(nr):
             for i in range(n - 1):       # one triangle at a time, so a failure leaves the same partial update
@@ -520,12 +571,14 @@ class TubeEditMixin:
             raise ValueError("ERROR (Tube::setTubeRadii): Number of radii in input vector must match number of tube nodes.")
         self._bake_tube_transform(obj)
         nodes = obj.extra["nodes"]
-        tv = obj.extra["triangle_vertices"].copy()
-        for seg in range(len(tv)):
-            for k in range(tv.shape[1]):
-                axis = V.normalize(tv[seg][k] - nodes[seg])
-                tv[seg][k] = nodes[seg] + axis * radii[seg]
-        obj.extra["triangle_vertices"] = tv
+        tv = np.asarray(obj.extra["triangle_vertices"], f32)
+        nd = np.asarray(nodes, f32).reshape(-1, 1, 3)
+        d = tv - nd                                  # per vertex: nodes[seg] + normalize(tv - nodes[seg]) * r
+        m2 = (d[..., 0] * d[..., 0] + d[..., 1] * d[..., 1]) + d[..., 2] * d[..., 2]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            inv = f32(1.0) / np.sqrt(m2)
+        axis = np.where((m2 <= 0)[..., None], d, d * inv[..., None])       # vec3::normalize keeps a zero vector
+        obj.extra["triangle_vertices"] = (nd + axis * np.asarray(radii, f32).reshape(-1, 1, 1)).astype(f32)
         obj.extra["radius"] = np.array(radii, f32)
         self._update_tube_triangles(obj)
 
@@ -539,10 +592,14 @@ class TubeEditMixin:
         nr = int(obj.extra["subdiv"])
         rc = _clamp_radius(obj.extra["radius"])
         cf, sf = _tube_factors(nr)
-        tv = np.zeros((len(nodes), nr + 1, 3), f32)
-        for i, (radial, ortho) in enumerate(_tube_frames(nodes)):
-            for j in range(nr + 1):     # nodes[i] + cfact*r*radial + sfact*r*orthogonal, left to right
-                tv[i][j] = (nodes[i] + f32(cf[j] * rc[i]) * radial) + f32(sf[j] * rc[i]) * ortho
+        fr = _tube_frames(nodes)
+        radial = np.array([f[0] for f in fr], f32).reshape(-1, 1, 3)
+        ortho = np.array([f[1] for f in fr], f32).reshape(-1, 1, 3)
+        r_ = np.array(rc, f32).reshape(-1, 1)
+        a = np.array(cf, f32).reshape(1, -1) * r_          # cfact * r, sfact * r per (node, radial slot)
+        b = np.array(sf, f32).reshape(1, -1) * r_
+        # nodes[i] + cfact*r*radial + sfact*r*orthogonal, left to right
+        tv = (np.array(nodes, f32).reshape(-1, 1, 3) + a[..., None] * radial) + b[..., None] * ortho
         obj.extra["nodes"] = np.array(nodes, f32).reshape(-1, 3)
         obj.extra["triangle_vertices"] = tv
         self._update_tube_triangles(obj)

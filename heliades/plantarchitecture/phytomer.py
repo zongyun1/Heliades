@@ -237,8 +237,9 @@ def get_leaf_blade_area(pa, leaf_objID: int) -> np.float32:
         raise PlantArchitectureError(f"ERROR (PlantArchitecture::getLeafBladeArea): Leaf object with ID of {leaf_objID} "
                                      "does not exist.")
     area = ctx.object_area(leaf_objID)
-    for u in ctx.filter_primitives_by_data(ctx.object_primitive_uuids(leaf_objID), "object_label", "petiolule"):
-        area = f32(area - ctx.primitive_area(u))
+    for a in ctx.primitive_areas(ctx.filter_primitives_by_data(ctx.object_primitive_uuids(leaf_objID), "object_label",
+                                                                "petiolule")):
+        area = f32(area - a)
     return f32(area)
 
 

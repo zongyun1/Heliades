@@ -107,6 +107,14 @@ def _ids(x) -> list[int]:
     return [int(x)] if np.isscalar(x) else [int(i) for i in x]
 
 
+def _copy_datum(v):
+    """Deep copy of a data.TypedData (a type code and a list of numpy scalars, small arrays, str, bool)."""
+    vals = v.values
+    if isinstance(vals, list) and all(isinstance(x, (np.generic, str, bool, int, float)) for x in vals):
+        return type(v)(v.type, list(vals))
+    return copy.deepcopy(v)
+
+
 class ObjectTransformsMixin:
     """Context copy/delete/transform API for primitives and compound objects."""
 
@@ -124,12 +132,22 @@ class ObjectTransformsMixin:
         o = self.objects.get(p.parent_object) if p.parent_object != 0 else None
         return o is not None and o.type != _OBJECT_POLYMESH
 
+    def _alive_members(self, obj):
+        """The object's existing member rows (slice or index array); Helios skips members that no longer
+        exist (doesPrimitiveExist)."""
+        ix = obj.member_index()
+        st = self._store
+        if isinstance(ix, slice):
+            if ix.stop <= st.n and st.alive[ix].all():
+                return ix
+            ix = np.arange(ix.start, ix.stop)
+        ok = (ix >= 0) & (ix < st.n)
+        ix = ix[ok]
+        return ix[st.alive[ix]]
+
     def _left_multiply_members(self, obj, T):
         obj.transform = matmult(T, obj.transform)
-        for u in obj.uuids:
-            p = self.primitives.get(u)
-            if p is not None:
-                p.transform = matmult(T, p.transform)
+        self._store.left_multiply_rows(self._alive_members(obj), T)
 
     # ---- primitives --------------------------------------------------------------------------
 
@@ -138,25 +156,53 @@ class ObjectTransformsMixin:
         """Copy one primitive (int -> int) or several (list -> list), in order. The copy keeps every
         Primitive field and its primitive data, but belongs to no object."""
         if np.isscalar(uuids):
-            return self._copy_primitive_one(int(uuids))
-        return [self._copy_primitive_one(int(u)) for u in uuids]
+            return self._copy_primitives([int(uuids)])[0]
+        return self._copy_primitives([int(u) for u in uuids])
 
     def _copy_primitive_one(self, uuid: int) -> int:
-        src = self.primitives.get(uuid)
-        if src is None:
+        """One copyPrimitive, with the Scene bookkeeping (used when a batch has a missing UUID, so the
+        copies made before the error are exactly Helios's)."""
+        if uuid not in self.primitives:
             raise ValueError(f"Context::copyPrimitive: UUID of {uuid} not found in the context.")
-        new = self.current_uuid
-        p = copy.deepcopy(src)                            # every field, including ones added later
-        p.uuid, p.parent_object = new, 0
-        if p.type == PATCH and getattr(src, "texture_file", None):
-            # A textured patch is rebuilt from solid_fraction = getArea() / (size.x * size.y), which is
-            # not always bit-identical to the source's stored fraction.
-            sz = src.size()
-            p.solid_fraction = float(f32(src.area() / f32(sz[0] * sz[1])))
-        self.primitives[new] = p
-        self.copy_primitive_data(uuid, new)
-        self.current_uuid += 1
-        return new
+        return self._copy_primitives([uuid])[0]
+
+    def _copy_primitives(self, uuids: list[int]) -> list[int]:
+        """copyPrimitive for a list, as array row copies. Same result as copying them one by one."""
+        if not uuids:
+            return []
+        st = self._store
+        src = np.asarray(uuids, np.int64)
+        ok = (src >= 0) & (src < st.n)
+        if not ok.all() or not st.alive[src].all():
+            return [self._copy_primitive_one(u) for u in uuids]     # raises at the first missing UUID
+        new0 = self.current_uuid
+        dst = st.copy_rows(src, new0)
+        # A textured patch is rebuilt from solid_fraction = getArea() / (size.x * size.y), which is not
+        # always bit-identical to the source's stored fraction.
+        tp = np.flatnonzero((st.ptype[src] == PATCH) & np.array([bool(t) for t in st.tex[src]], bool))
+        if len(tp):
+            s_ = src[tp]
+            sz = st.patch_sizes_rows(s_)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                st.sf[dst[tp]] = st.areas_rows(s_) / (sz[:, 0] * sz[:, 1])
+        self.current_uuid = new0 + len(src)
+        self._copy_primitive_data_rows(src.tolist(), dst.tolist())
+        out = dst.tolist()
+        self._after_copy_primitives(out)
+        return out
+
+    def _after_copy_primitives(self, new_uuids: list[int]):
+        """Hook for the Scene's per-copy bookkeeping (iteration order, material references)."""
+
+    def _copy_primitive_data_rows(self, src: list[int], dst: list[int]):
+        """copyPrimitiveData(src[i], dst[i]) for fresh dst UUIDs (no data of their own yet)."""
+        for d in self.primitive_data.values():
+            if not d:
+                continue
+            for s_, t_ in zip(src, dst):
+                v = d.get(s_)
+                if v is not None:
+                    d[t_] = _copy_datum(v)
 
     @ports("Context::copyPrimitiveData")
     def copy_primitive_data(self, src: int, dst: int):
@@ -164,7 +210,7 @@ class ObjectTransformsMixin:
         for d in self.primitive_data.values():
             d.pop(dst, None)
             if src in d:
-                d[dst] = copy.deepcopy(d[src])
+                d[dst] = _copy_datum(d[src])
 
     @ports("Context::deletePrimitive(const std::vector<uint>&)", "Context::deletePrimitive(uint)")
     def delete_primitives(self, uuids):
@@ -244,20 +290,19 @@ class ObjectTransformsMixin:
         src = self._object(oid, "Context::copyObject")
         uu = self.copy_primitive(list(src.uuids))
         new = self.current_object_id
-        for u in uu:
-            self.primitives[u].parent_object = new
+        if uu:
+            self._store.parent[np.asarray(uu, np.int64)] = new
         # Type-specific data (tile subdivisions, tube nodes/radii in the local frame, ...) is copied
         # as stored; the transform is copied verbatim. The origin is NOT copied: Helios constructs the
         # new object with a default (0,0,0) object_origin (see migration/notes/W1-B.md).
-        obj = copy.deepcopy(src)
-        obj.oid, obj.uuids, obj.origin = new, list(uu), np.zeros(3, f32)
+        obj = type(src)(new, src.type, uu, src.transform.copy(), np.zeros(3, f32), copy.deepcopy(src.extra))
         self.objects[new] = obj
         od = getattr(self, "object_data", None)          # Context::copyObjectData, once object data exists
         if isinstance(od, dict):
             for d in od.values():
                 d.pop(new, None)
                 if oid in d:
-                    d[new] = copy.deepcopy(d[oid])
+                    d[new] = _copy_datum(d[oid])
         self.current_object_id += 1
         return new
 
@@ -281,10 +326,7 @@ class ObjectTransformsMixin:
             if s[0] == 0 and s[1] == 0 and s[2] == 0:
                 continue
             obj.transform = _apply_translation(s, obj.transform)
-            for u in obj.uuids:
-                p = self.primitives.get(u)
-                if p is not None:
-                    p.transform = _apply_translation(s, p.transform)
+            self._store.translate_rows(self._alive_members(obj), s)
 
     @ports("Context::rotateObject(uint,float,const char*)", "Context::rotateObject(const std::vector<uint>&,float,const char*)",
            "Context::rotateObject(uint,float,const vec3&)", "Context::rotateObject(const std::vector<uint>&,float,const vec3&)",

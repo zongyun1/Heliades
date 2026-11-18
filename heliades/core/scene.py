@@ -3,7 +3,8 @@
 """Scene: the Heliades counterpart of helios::Context (geometry part).
 
 Primitives keep Helios's representation exactly: a float32 4x4 affine ``transform`` applied to a
-canonical shape (unit patch or generic triangle). All arithmetic below is float32, op for op, in the
+canonical shape (unit patch or generic triangle). They are stored as structure of arrays, one row per
+UUID (``heliades.core.store``, ``docs/core/PERFORMANCE.md``); ``Scene.primitives`` is a dict-like view. All arithmetic below is float32, op for op, in the
 same order as the C++ so results agree with Helios to the last bit or within an ulp.
 
 Host-side (numpy) by design: generation is branchy and sequential. Bulk consumers (rendering,
@@ -19,7 +20,8 @@ from .fileio import FileIOMixin
 from .materials import MaterialsMixin
 from .object_transforms import ObjectTransformsMixin
 from .objects import CompoundObject, ObjectsMixin, TubeEditMixin  # noqa: F401
-from .primitives import PATCH, TRIANGLE, VOXEL, Primitive, triangle_transform  # noqa: F401
+from .primitives import PATCH, TRIANGLE, VOXEL, Primitive, rotated, scaled, translated, triangle_transform  # noqa: F401
+from .store import PrimitiveMap, PrimitiveStore
 from .random import ContextRandom
 from .texture import Texture, does_texture_file_exist, get_file_extension, resolve_file_path, try_resolve_file_path
 from .shapes import ShapesMixin
@@ -32,7 +34,8 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
     """Geometry + data container (helios::Context counterpart)."""
 
     def __init__(self):
-        self.primitives: dict[int, Primitive] = {}
+        self._store = PrimitiveStore()
+        self.primitives = PrimitiveMap(self._store)       # dict-like UUID -> Primitive (a view of the store row)
         self.current_uuid = 0
         self.objects: dict[int, CompoundObject] = {}
         self.current_object_id = 1  # object ID 0 is reserved for "no parent object"
@@ -67,10 +70,10 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
         else:
             c[:3] = 0
         u = self.current_uuid
-        self.primitives[u] = Primitive(u, ptype, transform.astype(f32), c)
+        self._store.add(u, ptype, transform, c)
         self.primitive_order.insert(u)
         if automatic_material:
-            self._assign_automatic_material(self.primitives[u])
+            self._assign_automatic_material(Primitive(self._store, u))
         self.current_uuid += 1
         return u
 
@@ -80,16 +83,7 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
         size = np.asarray(size, f32)
         if size[0] < f32(1e-6) or size[1] < f32(1e-6):
             raise ValueError("addPatch: size must be > 1e-6")
-        u = self._new(PATCH, np.eye(4, dtype=f32).reshape(16), color)
-        p = self.primitives[u]
-        p.scale((size[0], size[1], 1))
-        el, az = f32(rotation[0]), f32(rotation[1])
-        if el != 0:
-            p.rotate(-el, "x")
-        if az != 0:
-            p.rotate(-az, "z")
-        p.translate(center)
-        return u
+        return self._new(PATCH, _placed_patch_matrix(size, rotation, center), color)
 
     @ports("Context::addTriangle")
     def add_triangle(self, v0, v1, v2, color=None) -> int:
@@ -118,13 +112,7 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
         return u
 
     def _place_patch(self, p, size, rotation, center):
-        p.scale((size[0], size[1], 1))
-        el, az = f32(rotation[0]), f32(rotation[1])
-        if el != 0:
-            p.rotate(-el, "x")
-        if az != 0:
-            p.rotate(-az, "z")
-        p.translate(center)
+        p.transform = _placed_patch_matrix(size, rotation, center, p.transform)
 
     @ports("Context::addPatch(texture)", "Context::addPatch(texture,uv_center,uv_size)")
     def add_patch_textured(self, center, size, rotation, texture_file: str, uv_center=None, uv_size=None) -> int:
@@ -196,14 +184,17 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
     def all_uuids(self, include_hidden: bool = False) -> list[int]:
         """Sorted UUIDs. Hidden primitives are skipped, as Helios does (include_hidden is a Heliades
         extension for snapshots of prototype geometry)."""
+        uu = self._store.alive_uuids().tolist()
+        if include_hidden or not self.hidden_primitives:
+            return uu
         hid = self.hidden_primitives
-        return sorted(u for u in self.primitives if include_hidden or u not in hid)
+        return [u for u in uu if u not in hid]
 
     @ports("Context::getPrimitiveCount")
     def primitive_count(self, include_hidden: bool = True) -> int:
         if include_hidden:
             return len(self.primitives)
-        return sum(1 for u in self.primitives if u not in self.hidden_primitives)
+        return self._store.count - sum(1 for u in self.hidden_primitives if u in self.primitives)
 
     @ports("Context::doesPrimitiveExist")
     def does_primitive_exist(self, uuid: int) -> bool:
@@ -263,11 +254,20 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
         return int(oid) in self.hidden_objects
 
     # ---- bookkeeping wrapped around W1-B's copy / delete ----
-    def _copy_primitive_one(self, uuid: int) -> int:
-        new = super()._copy_primitive_one(uuid)
-        self.primitive_order.insert(new)
-        self._material_reference_copied(self.primitives[new])     # same material, one more user
-        return new
+    def _after_copy_primitives(self, new_uuids: list[int]):
+        """Per copy, in order: iteration-order insert, then the material reference (the copy shares the
+        source's material). Only a material with the texture-color override does more than count."""
+        order, mats, st = self.primitive_order, self.materials, self._store
+        for u in new_uuids:
+            order.insert(u)
+        for u, m in zip(new_uuids, st.mat[np.asarray(new_uuids, np.int64)].tolist()):
+            mm = mats.get(m) if m >= 0 else None
+            if mm is None:
+                continue
+            if mm.texture_color_overridden:
+                self._material_reference_copied(Primitive(st, u))
+            else:
+                mm.reference_count += 1
 
     def delete_primitives(self, uuids):
         ids = _ids(uuids)
@@ -288,6 +288,14 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
     @ports("Context::getPrimitiveArea")
     def primitive_area(self, uuid: int):
         return self.primitives[uuid].area()
+
+    def primitive_areas(self, uuids) -> np.ndarray:
+        """getPrimitiveArea for each UUID (batched; float32 array in the given order)."""
+        ix = np.asarray(_ids(uuids), np.int64)
+        st = self._store
+        if len(ix) and not (((ix >= 0) & (ix < st.n)).all() and st.alive[ix].all()):
+            return np.array([self.primitive_area(u) for u in ix.tolist()], f32)   # raises on the missing one
+        return st.areas_rows(ix)
 
     @ports("Context::getPrimitiveNormal")
     def primitive_normal(self, uuid: int):
@@ -321,20 +329,16 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
         from ..parity.snapshot import ObjectTable, Snapshot
         uu = self.all_uuids(include_hidden)
         n = len(uu)
-        Vt, nv = np.zeros((n, 4, 3), f32), np.zeros(n, np.int32)
-        A, N, C, T = np.zeros(n, f32), np.zeros((n, 3), f32), np.zeros((n, 4), f32), np.zeros(n, np.int32)
-        P = np.zeros(n, np.int64)
-        UV, nuv, SF = np.zeros((n, 4, 2), f32), np.zeros(n, np.int32), np.ones(n, f32)
-        tex = []
-        for i, u in enumerate(uu):
-            p = self.primitives[u]
-            v = p.vertices()
-            Vt[i, : len(v)], nv[i] = v, len(v)
-            A[i], N[i], C[i], T[i], P[i] = p.area(), p.normal(), p.color, p.type, p.parent_object
-            if p.uv is not None:
-                UV[i, : len(p.uv)], nuv[i] = p.uv, len(p.uv)
-            SF[i] = p.solid_fraction
-            tex.append(p.texture_file or "")
+        st = self._store
+        ix = np.asarray(uu, np.int64)
+        Vt, nv = st.vertices_rows(ix)
+        A, N = st.areas_rows(ix, Vt), st.normals_rows(ix, Vt)
+        C, T, P = st.color[ix].copy(), st.ptype[ix].astype(np.int32), st.parent[ix].copy()
+        nuv = st.nuv[ix].astype(np.int32)
+        UV = st.uv[ix].copy()
+        UV[np.arange(4)[None, :] >= nuv[:, None]] = 0
+        SF = st.sf[ix].copy()
+        tex = [t or "" for t in st.tex[ix].tolist()]
         oids = self.all_object_ids(include_hidden)
         objs = ObjectTable(np.array(oids, np.int64),
                            np.array([self.objects[o].type for o in oids], np.int32),
@@ -349,6 +353,19 @@ class Scene(MaterialsMixin, DataMixin, TubeEditMixin, ObjectsMixin, ShapesMixin,
 
 def _ids(x) -> list[int]:
     return [int(x)] if np.isscalar(x) else [int(i) for i in x]
+
+
+def _placed_patch_matrix(size, rotation, center, T=None) -> np.ndarray:
+    """addPatch's placement of the unit patch: scale (size.x, size.y, 1), rotate -elevation about x, -azimuth
+    about z, translate to the center, each as Primitive::scale/rotate/translate (left-multiplied)."""
+    T = np.eye(4, dtype=f32).reshape(16) if T is None else T
+    T = scaled(T, (size[0], size[1], 1))
+    el, az = f32(rotation[0]), f32(rotation[1])
+    if el != 0:
+        T = rotated(T, -el, "x")
+    if az != 0:
+        T = rotated(T, -az, "z")
+    return translated(T, center)
 
 
 @ports("helios::resolvePluginAsset")

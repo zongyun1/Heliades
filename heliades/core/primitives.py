@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-
 import numpy as np
 
 from . import vec as V
@@ -15,8 +13,7 @@ f32 = np.float32
 
 PATCH, TRIANGLE, VOXEL = 0, 1, 2
 
-_PATCH_Y = np.array([[-0.5, -0.5, 0.0], [0.5, -0.5, 0.0], [0.5, 0.5, 0.0], [-0.5, 0.5, 0.0]], f32)
-_TRI_Y = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0]], f32)
+from .store import INV_V1_F32 as _INV_V1_F32, PATCH_Y as _PATCH_Y, TRI_Y as _TRI_Y  # noqa: E402
 
 
 # ---- float32 matrix helpers (global.cpp) -----------------------------------------------------
@@ -83,21 +80,106 @@ _cross = V.cross
 _mag = V.magnitude
 
 
-# generic triangle (0,0,0),(0,1,0),(1,1,0) padded with ones; its inverse in double (constant)
-_V1 = np.array([0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1], np.float64).reshape(4, 4)
-_INV_V1_F32 = np.linalg.inv(_V1).astype(f32)  # exact small rationals, so any inversion method agrees
-
-
-@dataclass
 class Primitive:
-    uuid: int
-    type: int
-    transform: np.ndarray                      # float32[16], row-major 4x4
-    color: np.ndarray = field(default_factory=lambda: np.array([0, 0, 0, 1], f32))
-    parent_object: int = 0
-    solid_fraction: np.float32 = f32(1.0)   # Primitive::solid_fraction (from the texture's alpha mask)
-    texture_file: str | None = None         # the material's texture_file, verbatim as passed to addPatch etc.
-    uv: np.ndarray | None = None            # (k,2) float32 texture (u,v) per vertex; None = Helios's empty vector
+    """One primitive, as a light view of its row in the Scene's :class:`~heliades.core.store.PrimitiveStore`.
+
+    Reading a field returns a copy (``transform``, ``color``, ``uv``), so a Primitive behaves like the value
+    object it replaces; assigning a field writes the row. The proxy holds no state of its own, so two proxies
+    of one UUID always agree. Bulk code should use the store's batched row functions instead."""
+
+    __slots__ = ("_s", "uuid")
+
+    def __init__(self, store, uuid: int):
+        self._s = store
+        self.uuid = uuid
+
+    def __repr__(self):
+        return f"Primitive(uuid={self.uuid}, type={self.type}, parent_object={self.parent_object})"
+
+    # Attributes other than the fields below (added by other packages) live in the store's per-UUID
+    # ``extra`` dict; copies deep-copy them.
+    def __getattr__(self, name):
+        if name in ("_s", "uuid"):
+            raise AttributeError(name)
+        d = self._s.extra.get(self.uuid)
+        if d is not None and name in d:
+            return d[name]
+        raise AttributeError(f"'Primitive' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        if name in _PRIMITIVE_OWN:
+            object.__setattr__(self, name, value)
+        else:
+            self._s.extra.setdefault(self.uuid, {})[name] = value
+
+    # ---- fields ----
+    @property
+    def type(self) -> int:
+        return int(self._s.ptype[self.uuid])
+
+    @property
+    def transform(self) -> np.ndarray:                 # float32[16], row-major 4x4
+        return self._s.T[self.uuid].copy()
+
+    @transform.setter
+    def transform(self, T):
+        self._s.T[self.uuid] = np.asarray(T, f32).reshape(16)
+
+    @property
+    def color(self) -> np.ndarray:                     # RGBA float32
+        return self._s.color[self.uuid].copy()
+
+    @color.setter
+    def color(self, c):
+        self._s.color[self.uuid] = c
+
+    @property
+    def parent_object(self) -> int:
+        return int(self._s.parent[self.uuid])
+
+    @parent_object.setter
+    def parent_object(self, oid):
+        self._s.parent[self.uuid] = oid
+
+    @property
+    def solid_fraction(self) -> np.float32:            # Primitive::solid_fraction (from the texture's alpha mask)
+        return self._s.sf[self.uuid]
+
+    @solid_fraction.setter
+    def solid_fraction(self, x):
+        self._s.sf[self.uuid] = x
+
+    @property
+    def texture_file(self) -> str | None:              # the material's texture_file, verbatim as passed to addPatch etc.
+        return self._s.tex[self.uuid]
+
+    @texture_file.setter
+    def texture_file(self, t):
+        self._s.tex[self.uuid] = t
+
+    @property
+    def uv(self) -> np.ndarray | None:                 # (k,2) float32 texture (u,v) per vertex; None = Helios's empty vector
+        k = int(self._s.nuv[self.uuid])
+        return None if k == 0 else self._s.uv[self.uuid, :k].copy()
+
+    @uv.setter
+    def uv(self, uv):
+        if uv is None or len(uv) == 0:
+            self._s.nuv[self.uuid] = 0
+            return
+        uv = np.asarray(uv, f32).reshape(-1, 2)
+        self._s.uv[self.uuid] = 0
+        self._s.uv[self.uuid, : len(uv)] = uv
+        self._s.nuv[self.uuid] = len(uv)
+
+    @property
+    def material_id(self) -> int | None:
+        m = int(self._s.mat[self.uuid])
+        return None if m < 0 else m
+
+    @material_id.setter
+    def material_id(self, m):
+        self._s.mat[self.uuid] = -1 if m is None else m
 
     @ports("Primitive::hasTexture")
     def has_texture(self) -> bool:
@@ -105,7 +187,8 @@ class Primitive:
 
     @ports("Primitive::getTextureUV")
     def texture_uv(self) -> np.ndarray:
-        return np.zeros((0, 2), f32) if self.uv is None else self.uv.copy()
+        uv = self.uv
+        return np.zeros((0, 2), f32) if uv is None else uv
 
     def vertices(self) -> np.ndarray:
         return _apply(self.transform, _PATCH_Y if self.type == PATCH else _TRI_Y)
@@ -130,23 +213,41 @@ class Primitive:
 
     # transforms (Patch::rotate / Primitive::scale / Primitive::translate)
     def scale(self, s):
-        s = np.asarray(s, f32)
-        if np.any(s == 0):
-            raise ValueError("scale factor cannot be zero")
-        if np.all(s == 1):
-            return
-        self.transform = matmult(make_scale_matrix(s), self.transform)
+        self.transform = scaled(self._s.T[self.uuid], s)
 
     def rotate(self, radians: float, axis: str):
-        if f32(radians) == 0:
-            return
-        self.transform = matmult(make_rotation_matrix(radians, axis), self.transform)
+        self.transform = rotated(self._s.T[self.uuid], radians, axis)
 
     def translate(self, t):
-        t = np.asarray(t, f32)
-        if np.all(t == 0):
-            return
-        self.transform = matmult(make_translation_matrix(t), self.transform)
+        self.transform = translated(self._s.T[self.uuid], t)
+
+
+_PRIMITIVE_OWN = frozenset({"_s", "uuid"} | {k for k, v in vars(Primitive).items() if isinstance(v, property)})
+
+
+# The three Primitive transforms as functions of a matrix (used to build a new primitive's matrix before it is
+# stored, and by the proxy above).
+
+def scaled(T, s) -> np.ndarray:
+    s = np.asarray(s, f32)
+    if np.any(s == 0):
+        raise ValueError("scale factor cannot be zero")
+    if np.all(s == 1):
+        return T
+    return matmult(make_scale_matrix(s), T)
+
+
+def rotated(T, radians: float, axis: str) -> np.ndarray:
+    if f32(radians) == 0:
+        return T
+    return matmult(make_rotation_matrix(radians, axis), T)
+
+
+def translated(T, t) -> np.ndarray:
+    t = np.asarray(t, f32)
+    if np.all(t == 0):
+        return T
+    return matmult(make_translation_matrix(t), T)
 
 
 @ports("Triangle::makeTransformationMatrix")

@@ -87,7 +87,7 @@ def make_scale_matrix_about_point(scale, point) -> np.ndarray:
 def _apply_translation(shift, M: np.ndarray) -> np.ndarray:
     """applyTranslationToMatrix (Context_object.cpp) / translateObjectPrimitives_private: add the
     shift to the translation column of an affine matrix, else fall back on T*M."""
-    s = V.v3(shift)
+    s = shift if isinstance(shift, np.ndarray) and shift.dtype == f32 and shift.shape == (3,) else V.v3(shift)
     if (M[12:16] == _AFFINE_ROW).all():
         M = M.copy()
         M[3:12:4] = M[3:12:4] + s          # M[3] += s.x, M[7] += s.y, M[11] += s.z
@@ -142,19 +142,35 @@ class ObjectTransformsMixin:
     def _alive_members(self, obj):
         """The object's existing member rows (slice or index array); Helios skips members that no longer
         exist (doesPrimitiveExist)."""
+        st = self._store
+        if obj._alive_gen == st.deaths:          # no primitive deleted since the last check (rows never come back)
+            return obj._alive_ix
         ix = obj.member_index()
+        out = self._alive_members_uncached(ix)
+        if out is ix:                            # every member exists: cache until the next deletion
+            obj._alive_ix, obj._alive_gen = out, st.deaths
+        return out
+
+    def _alive_members_uncached(self, ix):
         st = self._store
         if isinstance(ix, slice):
             if ix.stop <= st.n and st.alive[ix].all():
                 return ix
             ix = np.arange(ix.start, ix.stop)
         ok = (ix >= 0) & (ix < st.n)
+        if ok.all() and st.alive[ix].all():
+            return ix
         ix = ix[ok]
         return ix[st.alive[ix]]
 
     def _left_multiply_members(self, obj, T):
-        obj.transform = matmult(T, obj.transform)
-        self._store.left_multiply_rows(self._alive_members(obj), T)
+        """T * M for the object matrix and each member matrix, as one batch (the object matrix is the last row)."""
+        ix = self._alive_members(obj)
+        st = self._store
+        R = np.concatenate([st.T[ix], np.asarray(obj.transform, f32).reshape(1, 16)])
+        out = matmult_rows(np.asarray(T, f32).reshape(16), R)
+        st.T[ix] = out[:-1]
+        obj.transform = np.array(out[-1], f32)
 
     def _batch(self, ids):
         """(objects, member rows) when one call on several objects can be done as one row operation: they all
@@ -441,8 +457,8 @@ class ObjectTransformsMixin:
     def scale_object(self, oids, scale):
         """Scale about the world origin (Helios: scaleAboutPoint(scale, nullorigin))."""
         ids = _ids(oids)
-        if self._batch(ids) is not None:
-            self.scale_object_about_point(ids, scale, (0.0, 0.0, 0.0))
+        if all(o in self.objects for o in ids) and len(set(ids)) == len(ids):
+            self.scale_object_about_point(ids, scale, (0.0, 0.0, 0.0))    # batches when it can
             return
         for oid in ids:
             self.scale_object_about_point(oid, scale, (0.0, 0.0, 0.0))

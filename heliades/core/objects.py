@@ -23,7 +23,7 @@ class CompoundObject:
     (``extra``, in the object's local frame). ``member_index()`` caches the members as a slice (when they
     are consecutive UUIDs, the usual case) or an index array, for the batched row operations."""
 
-    __slots__ = ("oid", "type", "_uuids", "transform", "origin", "extra", "_ix")
+    __slots__ = ("oid", "type", "_uuids", "transform", "origin", "extra", "_ix", "_alive_ix", "_alive_gen")
 
     def __init__(self, oid: int, type: int, uuids, transform=None, origin=None, extra=None):
         self.oid = oid
@@ -41,6 +41,7 @@ class CompoundObject:
     def uuids(self, uu):
         self._uuids = list(uu)
         self._ix = None
+        self._alive_gen = -1          # store.deaths when _alive_ix (the existing members) was last computed
 
     def member_index(self):
         """The member UUIDs as ``slice(a, b)`` if they are a, a+1, ..., b-1, else an int64 array."""
@@ -264,11 +265,11 @@ class ObjectsMixin:
         if obj is None:
             raise ValueError(f"ERROR (Context::getObjectPointer): Object ID of {oid} does not exist in the Context.")
         ix = self._alive_members(obj)
-        rows = np.arange(self._store.n)[ix] if isinstance(ix, slice) else ix
-        area = 0.0
-        for a in self._store.areas_rows(rows).tolist():     # in member order, double accumulator
-            area += a
-        return f32(area)
+        rows = np.arange(ix.start, ix.stop) if isinstance(ix, slice) else ix
+        if not len(rows):
+            return f32(0.0)
+        # sum in member order with a double accumulator from 0 (accumulate is sequential; 0 + a0 == a0)
+        return f32(np.add.accumulate(self._store.areas_rows(rows).astype(np.float64))[-1])
 
     @ports("Context::getObjectPrimitiveCount")
     def object_primitive_count(self, oid: int) -> int:

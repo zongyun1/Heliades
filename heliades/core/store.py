@@ -120,6 +120,7 @@ class PrimitiveStore:
         self.cap = 0
         self.n = 0              # rows in use: max UUID + 1
         self.count = 0          # alive rows
+        self.deaths = 0         # number of kill()s so far: cached "all members alive" results stay valid until it moves
         for name, shape, dt, fill in self._FIELDS:
             setattr(self, name, np.full((0, *shape), fill, dt))
         self.tex = np.empty(0, object)          # texture file (str) or None
@@ -189,6 +190,7 @@ class PrimitiveStore:
         if self.alive[u]:
             self.alive[u] = False
             self.count -= 1
+            self.deaths += 1
 
     def copy_rows(self, src: np.ndarray, dst0: int) -> np.ndarray:
         """Copy rows ``src`` (alive) to the fresh rows dst0..dst0+len(src)-1, every field; parent = 0."""

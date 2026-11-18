@@ -85,3 +85,20 @@ SHOOT_INITIALIZERS.update(asparagus=asparagus.initializeAsparagusShoots,
 PLANT_BUILDERS.update(asparagus=asparagus.buildAsparagusPlant, butterlettuce=butterlettuce.buildButterLettucePlant,
                       sugarbeet=sugarbeet.buildSugarbeetPlant, cucumber=cucumber.buildCucumberPlant,
                       cowpea=cowpea.buildCowpeaPlant)
+# W5-C: weeds (bindweed, cheeseweed, groundcherryweed, puncturevine) and bougainvillea
+from . import bindweed, bougainvillea, cheeseweed, groundcherryweed, puncturevine  # noqa: E402
+
+SHOOT_INITIALIZERS.update(bindweed=bindweed.initializeBindweedShoots, cheeseweed=cheeseweed.initializeCheeseweedShoots,
+                          groundcherryweed=groundcherryweed.initializeGroundCherryWeedShoots,
+                          puncturevine=puncturevine.initializePuncturevineShoots,
+                          bougainvillea=bougainvillea.initializeBougainvilleaShoots)
+PLANT_BUILDERS.update(bindweed=bindweed.buildBindweedPlant, cheeseweed=cheeseweed.buildCheeseweedPlant,
+                      groundcherryweed=groundcherryweed.buildGroundCherryWeedPlant,
+                      puncturevine=puncturevine.buildPuncturevinePlant,
+                      bougainvillea=bougainvillea.buildBougainvilleaPlant)
+
+# W5-C: grapevine_Wye (its build parameters are registered with grapevine_VSP's, grapevine.register_build_parameters)
+from . import grapevine_wye  # noqa: E402
+
+SHOOT_INITIALIZERS["grapevine_Wye"] = grapevine_wye.initializeGrapevineWyeShoots
+PLANT_BUILDERS["grapevine_Wye"] = grapevine_wye.buildGrapevineWye

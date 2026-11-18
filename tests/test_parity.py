@@ -46,6 +46,12 @@ SLOW_CASES = {
     "plantarch.cucumber.age0_attrs", "plantarch.cucumber.age0_full", "plantarch.cucumber.ages",
     "plantarch.cucumber.steps", "plantarch.cucumber.bump_maps", "plantarch.cowpea.age0_attrs",
     "plantarch.cowpea.age0_full", "plantarch.cowpea.ages", "plantarch.cowpea.steps",
+    # W5-C
+    *(f"plantarch.{m}.{c}" for m in ("bindweed", "cheeseweed", "groundcherryweed", "puncturevine", "bougainvillea")
+      for c in ("steps", "ages")),
+    "plantarch.puncturevine.ages_late", "plantarch.grapewye.load", "plantarch.grapewye.age0",
+    "plantarch.grapewye.age0_build_parameters", "plantarch.grapewye.steps", "plantarch.grapewye.age76",
+    "plantarch.grapewye.age84", "plantarch.grapewye.age100", "plantarch.grapewye.small_age150",
 }
 
 

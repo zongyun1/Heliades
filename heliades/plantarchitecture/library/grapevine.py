@@ -101,6 +101,8 @@ def register_build_parameters(pa):
     registerPlantModelBuildParameters(pa, "grapevine_VSP", [grapevine_vine_spacing, grapevine_VSP_trunk_height],
                                       GrapeClusterParameters.buildParameterDeclarations(),
                                       _validate_grape_cluster_parameters)
+    from . import grapevine_wye                                    # W5-C: PL:523-524
+    grapevine_wye.register_build_parameters(pa)
 
 
 # ---- BoundedWander (PL:24-58) ----------------------------------------------------------------------------

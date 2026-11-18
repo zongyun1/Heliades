@@ -366,11 +366,140 @@ notes keep the longer write-ups. New findings go straight into this file.
 - What: every blade consumes 48 facet UUIDs of which 8 fully transparent ones are deleted again (40 survive per tomato
   blade; 152 UUIDs for 144 primitives per leaf cache). `MaizeTasselPrototype` draws ~10^5 numbers from the Context
   stream (day 57 onward: 549 vs 104121 engine calls for seed 1).
-- Heliades: reproduces the UUID consumption; the tassel prototype is not ported yet (a maize build past day 56
-  raises).
+- Heliades: reproduces the UUID consumption and, since W5-A, the tassel prototype with its full draw sequence
+  (maize to day 365 at 0 ulp).
 
 ### 40. PyHelios passes build parameters as fixed values only [W4-D]
 
 - What: PyHelios 1.3.98 cannot pass a distributed build parameter, so `BuildParameterDistribution::sample`
   (uniform / normal / discrete) is not reachable from the oracle.
 - Heliades: ported (fresh `helios::` distributions, like C++) but not oracle-checked.
+
+## Core (found by the W5 models)
+
+### 41. `addTriangle(..., RGBcolor)` clamps the color; `RGBcolor::scale` does not [W5-A]
+
+- What: `make_RGBAcolor(color, 1)` clamps every channel to [0, 1] in the constructor, while `RGBcolor::scale` leaves
+  out-of-range values. Brightened grass anthers / lemmas (scale 1.2) exceed 1 and are clamped when the triangle is made.
+- Evidence: first tassel comparison, 93 color values 1.0032 vs 1.0.
+- Heliades: the core clamps primitive colors as the RGBcolor/RGBAcolor constructors do (P1, `scene._color_rgba`);
+  a no-op for in-range values, NaN and -0 pass through.
+
+## plantarchitecture engine (W5)
+
+### 42. uint wrap in `Shoot::sampleVegetativeBudBreak` [upstream?] [W5-C]
+
+- What: `float(current_node_number - node_index - 1)` with both `uint`. In `appendPhytomer` (PA:2098) the new bud is
+  sampled before `current_node_number` is incremented (PA:7541), so the difference is -1 -> 4294967295 and the
+  probability is `probability_min`. With a positive decay rate the "maximum at apex" profile never applies to newly
+  appended buds, only to buds re-sampled in `breakDormancy`.
+- Where: PA:7083.
+- Heliades: reproduced (puncturevine and bougainvillea depend on it).
+
+### 43. Unstable `std::sort` decides which branches are shed and promoted [upstream?] [W5-D]
+
+- What: `shedShadedBranches` sorts by rank and `updateGrowthPriority` sorts siblings by light exposure with
+  `std::sort` (PA:9489, 8995). Ties are common (equal ranks; sibling tips in one voxel), so the result depends on the
+  standard library's introsort: libstdc++ and libc++ give different trees.
+- Heliades: replicates libstdc++ `std::sort` exactly (`seasons.std_sort`).
+
+### 44. Spurs are never shed; the low-crown shedding term is dead code [W5-D]
+
+- What: `isStructuralShoot` treats everything but proleptic/sylleptic as structural (PA:8936), so spurs are never
+  shed. `branch_shedding_low_crown_probability = 0`, so the crown radius/height it computes is unused.
+- Heliades: same behaviour; the dead computation is skipped (no draws, no state).
+
+### 45. The shadow grid is rebuilt every sub-step but only its season-peak copy is read [W5-D]
+
+- What: wasted work in Helios (rebuilt whenever the leaf count changes); only growth priority and apple's light
+  thinning read the peak copy.
+- Heliades: builds it lazily with the same values. The grid origin (`shadow_grid_origin`) is honoured in the light
+  lookup, so translated plants get the same exposure as in Helios.
+
+### 46. Fruiting-wall competitor pinching and low-feather removal never fire in the checked builds [W5-E]
+
+- What: the rules at AS:1418 and AS:1412 did not trigger in any build checked (default wall to day 3650, short wall to
+  day 1100, seed 1, event counter). The first needs a branch of exactly one dormancy cycle within 0.2 m of a growing
+  leader's tip, the second a branch below the trunk height, which the builder never makes.
+- Heliades: ported; untested by the oracle.
+
+## Plant library (W5)
+
+### 47. Sugar beet: discarded yaw draw; the OBJ leaf is never loaded [W5-B]
+
+- What: `buildSugarbeetPlant` passes `0.f * randu(0, 2*M_PI)` as the yaw (PL:6090): the draw is taken (first, right
+  to left) and discarded, so every sugar beet has yaw 0 but the stream advances. `SugarBeetLeaf.obj` is referenced by
+  no source file; the blades are `GenericLeafPrototype` on `SugarbeetLeaf.png`.
+- Heliades: reproduced.
+
+### 48. Asparagus never reaches dormancy and has dead inflorescence parameters [W5-B]
+
+- What: `max_age = 20` but the phenological thresholds put dormancy at 100 days; the plant stops growing after the
+  step crossing day 20. `max_floral_buds_per_petiole = 0`, so peduncle / inflorescence parameters have no effect.
+  Builds at 30..120 d are identical apart from the last partial step.
+- Heliades: reproduced.
+
+### 49. Cucumber: a bump map per leaf gives every leaf primitive its own material copy [W5-B]
+
+- What: `CucumberMainPhytomerCreationFunction` calls `setPrimitiveBumpMap` on every new leaf; each primitive of the
+  named `cucumber_main_leaf` material then gets its own `__copy_<id>_<UUID>` material. The species comment in
+  PlantLibrary.cpp says it was "Ported by Heliades".
+- Heliades: reproduced (material labels compared).
+
+### 50. Ground-cherry weed never fruits; cheeseweed's leaf prototype is unused [W5-C]
+
+- What: groundcherryweed's `fruit_prototype_function` is commented out (PL:4512) and every fruit-set transition is
+  gated on a non-null fruit function, so its fruit-set parameters have no effect; with `time_to_flower_opening = -1`
+  its flowers stay closed for life. A stray `;` statement at PL:4468 is harmless. `CheeseweedLeafPrototype`
+  (AS:1686) is defined but the library sets `OBJ_model_file` instead.
+- Heliades: faithful.
+
+### 51. Almond variants: a Wood Colony typo and a Nonpareil fallback [W5-D]
+
+- What: PL:2038 sets `shoot_parameters_proleptic.vegetative_bud_break_probability_max = 0.6` inside the sylleptic
+  block, after sylleptic was copied, so proleptic (and the later-copied scaffold) get 0.6 and sylleptic keeps 0.5.
+  `buildAlmondTreeAldrich` / `buildAlmondTreeWoodColony` fall back to the Nonpareil shoot types when none are loaded
+  (PL:1564, 2092; unreachable through the library).
+- Heliades: reproduced.
+
+### 52. Unreferenced callbacks and prototypes; documentation tables disagree with the builders [W5-D, W5-E]
+
+- What: `WalnutPhytomerCallbackFunction`, `PistachioFlowerPrototype`, `OliveFlowerPrototype`,
+  `OlivePhytomerCreationFunction` are never referenced; `RedbudPhytomerCreationFunction` is empty; the olive flower
+  prototype is commented out (PL:4739), so olive inflorescences carry fruit only. `RedbudLeaf.obj` is unused (the
+  redbud leaf is the generic prototype on `RedbudLeaf.png`, PL:5236). PlantArchitecture.dox phenology tables disagree
+  with the code (almond dormancy break 165 d / max age 1825 vs 90 / 3000; walnut max age 1095 vs 1460; pistachio
+  flower opening 3 vs -1) and omit almond's sylleptic/spur and pistachio's scaffold/spur shoot types.
+- Heliades: follows the code; unreferenced functions ported anyway.
+
+### 53. Redbud: integer `randu` for the trunk rotation; draws from the unseeded global generator [upstream?] [W5-E]
+
+- What: `randu(0, 0.1 * M_PI)` (PL:5343) selects `Context::randu(int, int)`, so the trunk pitch is always 0 (no
+  draw) and yaw/roll are whole radians in {0..6}. `RedbudPhytomerCallbackFunction` (AS:2292) calls the free
+  `helios::randu(2, 4)`, a process-wide `std::mt19937` seeded from `std::random_device`: a redbud past its first
+  dormancy is not reproducible from the Context seed unless `helios::seedRandomGenerator` is called; it also draws on
+  every dormant step of every phytomer.
+- Heliades: same overload and a bit-identical global mt19937 (`core.random.global_randu`); the parity cases seed both.
+
+### 54. `apple_fruitingwall` trunk height maximum is 1.0000001 [W5-E]
+
+- What: the constexpr float `1.5f - 0.4f - 0.05f - 0.05f` is 1.0000001, not 1.0 (accepted by both; 1.0000002
+  rejected by both).
+- Heliades: same bound.
+
+## PyHelios binding and parity infrastructure (W5)
+
+### 55. PyHelios build-parameter errors differ from the C++ text [W5-A]
+
+- What: PyHelios rejects an unknown build-parameter key itself ("Unknown build parameter(s) ...") before calling C++
+  ("Build parameter 'x' is not accepted by plant model 'y' ..."), and prefixes C++ errors with
+  "ERROR (PlantArchitecture::buildPlantInstanceFromLibrary): ".
+- Heliades: raises the C++ text; the cases compare the innermost `ERROR (...)` message.
+
+### 56. Test-op quirks: tube-object shoot labels on the oracle side [W5-A, W5-B]
+
+- What (not Helios): `pa_tube_objects("petiole")` infers a petiole's shoot from per-shoot node counts (wrong once a
+  tiller exists), and `pa_tube_objects("internode")` labels Helios internodes with consecutive shoot indices (wrong
+  once a shoot has no tube yet). The Wye attraction points have no PyHelios getter (verified through the growth they
+  steer).
+- Heliades: the affected cases compare tube objects without the inferred shoot label.

@@ -132,6 +132,54 @@ class PlantArchitectureAPI:
             return [self.getPlantBasePosition(p) for p in plantIDs]
         return self._plant(plantIDs, "getPlantBasePosition").base_position.copy()
 
+    @ports("PlantArchitecture::setPlantBasePosition")
+    def setPlantBasePosition(self, plantID, base_position):
+        """PA:7919-8012: move a grown plant. The Context geometry of every existing organ is translated, every stored
+        position (shoot bases, internode / petiole / peduncle nodes, leaf bases, floral-bud and fruit bases, attraction
+        points, season-peak leaf positions) gets the same float32 shift, and the shadow-grid origin moves with it."""
+        fn = "setPlantBasePosition"
+        if int(plantID) not in self.plant_instances:
+            raise PlantArchitectureError(f"ERROR (PlantArchitecture::{fn}): Plant with ID of {plantID} does not exist.")
+        if getattr(self, "phytomer_callback_depth", 0) > 0:
+            raise PlantArchitectureError(
+                f"ERROR (PlantArchitecture::{fn}): A plant cannot be moved inside a phytomer callback "
+                "(PhytomerParameters::phytomer_creation_function or phytomer_callback_function), because the shoot being "
+                "grown holds positions that would not be moved with it. Call it from outside the callback, for example "
+                "between calls to advanceTime().")
+        inst = self.plant_instances[int(plantID)]
+        # pose_state: PlantPose is not ported (always null), so there is nothing to rebind or bake
+        base_position = np.asarray(base_position, f32).reshape(3).copy()
+        shift = base_position - inst.base_position
+        inst.base_position = base_position
+        if not inst.shoot_tree:
+            return
+        objIDs = [o for o in self.getAllPlantObjectIDs(plantID) if self._exists(o)]
+        self.context_ptr.translate_object(objIDs, shift)
+
+        def moved(rows, cast=False):
+            return [(np.asarray(v, f32).reshape(3) if cast else v) + shift for v in rows]
+
+        for shoot in inst.shoot_tree:
+            shoot.base_position = shoot.base_position + shift
+            shoot.shoot_internode_vertices = [moved(v) for v in shoot.shoot_internode_vertices]
+            for ph in shoot.phytomers:
+                ph.petiole_vertices = [moved(v) for v in ph.petiole_vertices]
+                ph.leaf_bases = [moved(v) for v in ph.leaf_bases]
+                for k in list(ph.leaf_stalk_base_placed):
+                    ph.leaf_stalk_base_placed[k] = np.asarray(ph.leaf_stalk_base_placed[k], f32).reshape(3) + shift
+                ph.seated_node_position = np.asarray(ph.seated_node_position, f32).reshape(3) + shift
+                ph.peduncle_vertices = [[moved(b, cast=True) for b in pp] for pp in ph.peduncle_vertices]
+                for petiole_buds in ph.floral_buds:
+                    for fbud in petiole_buds:
+                        fbud.base_position = tuple(np.asarray(fbud.base_position, f32).reshape(3) + shift)
+                        fbud.inflorescence_bases = moved(fbud.inflorescence_bases, cast=True)
+        if len(inst.attraction_points):
+            inst.attraction_points = inst.attraction_points + shift
+        if getattr(inst, "season_peak_leaf_positions", None):
+            inst.season_peak_leaf_positions = moved(inst.season_peak_leaf_positions, cast=True)
+        inst.shadow_grid_origin = np.asarray(getattr(inst, "shadow_grid_origin", (0, 0, 0)), f32) + shift
+        # clearBVHCache: collision detection is not ported, nothing is cached
+
     @ports("PlantArchitecture::isPlantDormant")
     def isPlantDormant(self, plantID) -> bool:
         return all(s.isdormant for s in self._plant(plantID, "isPlantDormant").shoot_tree)
@@ -546,7 +594,7 @@ PUBLIC_API = (
     "buildPlantInstanceFromLibrary", "buildPlantCanopyFromLibrary", "loadPlantModelFromLibrary", "advanceTime",
     "getAvailablePlantModels", "getCurrentShootParameters", "defineShootType", "addPlantInstance",
     "getAllPlantIDs", "getPlantAge", "getPlantMaxAge", "setPlantMaxAge", "getPlantName", "getPlantBuildParameters",
-    "getPlantBasePosition", "isPlantDormant", "getPlantHeight", "getPlantStemHeight", "getLeafBladeArea",
+    "getPlantBasePosition", "setPlantBasePosition", "isPlantDormant", "getPlantHeight", "getPlantStemHeight", "getLeafBladeArea",
     "sumPlantLeafArea", "getPlantLeafArea", "getPlantLeafCount", "getPlantLeafAreas", "getPlantInternodeLengths",
     "getPlantLeafBases", "getAllShootIDs", "getShootNodeCount", "getParentShootID", "getShootRank", "getShootDepth",
     "getPathToRoot", "getChildShootIDs", "getShootChildIDs", "getAllDescendantShootIDs", "getShootIDsByRank",

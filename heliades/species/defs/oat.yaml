@@ -1,0 +1,153 @@
+# Oat, built on the Helios wheat.
+#
+# Spring oat is a small-grain cereal with the wheat's architecture: sessile strap leaves on a culm of 7-9 phytomers
+# whose upper internodes elongate, a few tillers from the lowest axils (build parameter tiller_count) and the
+# inflorescence as the terminal fruit of each culm (WheatPhytomerCreationFunction, kept as the creation rule). The
+# wheat template is chosen over the rice (also a small-grain panicle cereal) because its creation function gives the
+# temperate cereal culm: few nodes, four elongated upper internodes, the flag leaf and a long exserted peduncle;
+# barley.yaml is the worked example of the same template.
+#
+# What differs from the wheat: the inflorescence is a loose, spreading **panicle** of pendant spikelets (the
+# procedural `panicle` organ, added for this species; the wheat spike OBJ would be wrong), the blades are longer,
+# broader and lax, the culm is taller with a long peduncle, the phyllochron slower and tillering lower.
+#
+# Every value is "judged" (general agronomic knowledge of spring oat); none is taken from one cited measurement.
+format: heliades-species/1
+name: oat
+template: wheat
+
+metadata:
+  latin_name: Avena sativa
+  common_name: oat
+  cultivar: spring oat
+  description: >-
+    Tillering annual grass 0.8-1.2 m tall; 7-9 leaves on the main culm, blades 20-30 cm long and 1.2-2 cm wide, lax,
+    without auricles; a loose, spreading panicle 15-30 cm long of 20-60 pendant two- to three-flowered spikelets on
+    slender whorled branches, heading about two months after emergence. Plant age 0 is emergence.
+
+sources: {}
+
+leaf_textures:
+  oat_leaf:
+    source: judged
+    note: broad linear blade tapering to a long acute tip; dull blue-green; parallel veins
+    length_px: 1024
+    aspect: 0.066
+    widest_at: 0.15
+    plateau: 0.40
+    base: 0.6
+    tip: 1.1
+    color: [0.30, 0.46, 0.27]
+    midrib_color: [0.50, 0.62, 0.42]
+    midrib_width: 0.07
+    veins: 5
+    vein_style: parallel
+    vein_width: 0.02
+    margin_shade: 0.1
+
+shoot_types:
+  mainstem:
+    shoot:
+      max_nodes: {value: 8, source: judged, note: leaves on the main culm of a spring oat (7-9)}
+      phyllochron_min: {value: 8.0, source: judged, note: "a leaf about every 8 days (about 100 degree-days at 12-13 C mean temperature)"}
+      internode_length_max: {value: 0.19, source: judged, note: longest culm internode below the peduncle (m)}
+    peduncle:
+      length: {value: 0.40, source: judged, note: "the uppermost internode; long, so the panicle is well exserted"}
+      radius: {value: 0.0018, source: judged}
+    leaf:
+      prototype_scale: {value: 0.28, source: judged, note: longest blade (m)}
+      pitch: {uniform: [-50.0, -30.0], source: judged, note: blades lax and spreading}
+    leaf_prototype:
+      leaf_texture_file: {texture: oat_leaf, source: judged}
+      leaf_class_map_file: {value: {}, source: judged, note: the wheat's class map belongs to its leaf image}
+      leaf_aspect_ratio: {value: 0.066, source: judged, note: "the texture's width / length: about 1.8 cm wide at 28 cm"}
+      flexibility: {uniform: [1.0, 1.4], source: judged, note: oat blades are thinner and droop more than wheat's}
+      wave_amplitude: {value: 0.05, source: judged}
+    inflorescence:
+      fruit_prototype_scale: {value: 0.22, source: judged, note: panicle length (m)}
+    fruit:
+      source: judged
+      note: "spreading equilateral panicle: 5 whorls of drooping branches with pendant spikelets"
+      panicle:
+        whorls: 5
+        whorl_top: 0.78
+        branches_base: 4
+        branches_tip: 2
+        branch_length: 0.50
+        branch_length_tip: 0.18
+        branch_angle: 50.0
+        branch_angle_tip: 30.0
+        droop: 55.0
+        spikelets_per_branch: 5
+        spikelet_zone: 0.55
+        spikelet_length: 0.11
+        spikelet_width: 0.30
+        spikelet_hang: 165.0
+        pedicel_length: 0.06
+        rachis_radius: 0.007
+        branch_radius: 0.0035
+        rachis_bend: 20.0
+        color: [0.62, 0.70, 0.42]
+        rachis_color: [0.48, 0.56, 0.30]
+        seed: 1
+  tiller:
+    shoot:
+      phyllochron_min: {value: 8.0, source: judged}
+      insertion_angle_tip: {uniform: [8.0, 18.0], source: judged, note: oat culms stand more erect than the wheat template's tillers}
+      internode_length_max: {value: 0.18, source: judged}
+    peduncle:
+      length: {value: 0.36, source: judged}
+      radius: {value: 0.0016, source: judged}
+    leaf:
+      prototype_scale: {value: 0.25, source: judged}
+      pitch: {uniform: [-50.0, -30.0], source: judged}
+    leaf_prototype:
+      leaf_texture_file: {texture: oat_leaf, source: judged}
+      leaf_class_map_file: {value: {}, source: judged}
+      leaf_aspect_ratio: {value: 0.066, source: judged}
+      flexibility: {uniform: [1.0, 1.4], source: judged}
+      wave_amplitude: {value: 0.05, source: judged}
+    inflorescence:
+      fruit_prototype_scale: {value: 0.19, source: judged, note: tiller panicles are smaller}
+    fruit:
+      source: judged
+      panicle:
+        whorls: 4
+        whorl_top: 0.75
+        branches_base: 3
+        branches_tip: 2
+        branch_length: 0.50
+        branch_length_tip: 0.20
+        branch_angle: 50.0
+        branch_angle_tip: 30.0
+        droop: 55.0
+        spikelets_per_branch: 4
+        spikelet_zone: 0.55
+        spikelet_length: 0.12
+        spikelet_width: 0.30
+        spikelet_hang: 165.0
+        pedicel_length: 0.06
+        rachis_radius: 0.007
+        branch_radius: 0.0035
+        rachis_bend: 20.0
+        color: [0.62, 0.70, 0.42]
+        rachis_color: [0.48, 0.56, 0.30]
+        seed: 2
+
+build:
+  builder: template
+  phenology:
+    fruit_maturity: {value: 40, source: judged, note: grain fill from heading to physiological maturity}
+  max_age: {value: 120, source: judged, note: harvest ripe about 100-115 days after emergence}
+  build_parameter_defaults:
+    tiller_count: {value: 2, source: judged, note: "panicle-bearing tillers per plant at field density (oat tillers less than barley)"}
+
+traits:
+  - {trait: plant_height, age: 40, range: [0.20, 0.55], source: judged, note: "stem elongation: leaves still dominate the height"}
+  - {trait: plant_height, age: 90, range: [0.80, 1.25], source: judged, note: to the top of the panicle}
+  - {trait: main_stem_nodes, age: 90, range: [7, 9], source: judged, note: leaves on the main culm}
+  - {trait: leaf_length_max, age: 50, range: [0.18, 0.35], source: judged}
+  - {trait: shoot_count, age: 60, range: [2, 5], source: judged, note: main culm and tillers}
+  - {trait: first_fruit_day, age: 80, range: [50, 70], source: judged, note: heading (the panicle appears), seeds: 2}
+  - {trait: fruit_count, age: 90, range: [2, 5], source: judged, note: panicles per plant}
+  - {trait: fruit_length_max, age: 90, range: [0.15, 0.32], source: judged, note: panicle length}

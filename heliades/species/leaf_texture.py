@@ -49,6 +49,7 @@ OUTLINE_KEYS = {
     "asymmetry": (float, 0.0, 0.0, 0.9),
     "lobes": (dict, None, None, None),
     "serration": (dict, None, None, None),
+    "sinus": (dict, None, None, None),
     "profile": (list, None, None, None),
     "color": (list, [0.22, 0.38, 0.13], None, None),
     "midrib_color": (list, None, None, None),
@@ -62,6 +63,9 @@ OUTLINE_KEYS = {
 }
 LOBE_KEYS = {"count": (int, None, 1, 50), "depth": (float, None, 0.0, 0.95), "sharpness": (float, 1.0, 0.05, 10.0)}
 SERRATION_KEYS = {"count": (int, None, 1, 400), "depth": (float, None, 0.0, 0.5)}
+#: basal sinus of a cordate blade (S1): an elliptical notch ``depth`` (fraction of the length) deep and ``width``
+#: (fraction of the blade width) wide at the base; the midrib stays solid across it (the petiole's continuation).
+SINUS_KEYS = {"depth": (float, None, 0.0, 0.5), "width": (float, 0.3, 0.01, 1.0)}
 
 
 class LeafOutlineError(ValueError):
@@ -107,6 +111,8 @@ def validate_outline(desc: dict, where: str = "leaf_texture") -> dict:
         d["lobes"] = _check_block(dict(d["lobes"]), LOBE_KEYS, where + ".lobes")
     if d["serration"] is not None:
         d["serration"] = _check_block(d["serration"], SERRATION_KEYS, where + ".serration")
+    if d["sinus"] is not None:
+        d["sinus"] = _check_block(d["sinus"], SINUS_KEYS, where + ".sinus")
     if d["vein_style"] not in ("pinnate", "parallel"):
         raise LeafOutlineError(f"{where}.vein_style: must be pinnate or parallel")
     if d["widest_at"] + d["plateau"] >= 1.0:
@@ -185,6 +191,10 @@ def render(desc: dict) -> np.ndarray:
         mid_c = np.clip(base * 1.6 + 0.08, 0, 1)
     midrib = np.abs(Y) <= d["midrib_width"] * aspect * (1.0 - 0.7 * X) + 0.5 * aspect / H
     col = np.where(midrib[..., None], mid_c, col)
+    if d["sinus"] is not None:
+        hw = 0.5 * aspect * d["sinus"]["width"]
+        notch = X < d["sinus"]["depth"] * np.sqrt(np.clip(1.0 - (Y / hw) ** 2, 0.0, 1.0))
+        inside = inside & (~notch | midrib)
 
     rgba = np.zeros((H, W, 4), np.uint8)
     rgba[..., :3] = np.clip(np.round(col * 255.0), 0, 255).astype(np.uint8)

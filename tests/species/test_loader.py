@@ -210,3 +210,27 @@ def test_build_parameter_defaults_and_inheritance():
     assert pa.getPlantBuildParameters(pid2)["tiller_count"] == 1
     with pytest.raises(Exception, match="outside the valid range|reaches outside"):
         pa.buildPlantInstanceFromLibrary((2, 0, 0), 30.0, {"tiller_count": 9})
+
+
+# ---- S1: per-leaflet generated texture maps ------------------------------------------------------------
+
+def test_per_leaflet_generated_texture_map(monkeypatch, tmp_path):
+    """``leaf_texture_file: {texture: {index: name}}`` gives each compound-leaf index its own generated texture."""
+    from heliades.species import assets
+    monkeypatch.setattr(assets, "leaf_texture_path", lambda species, name: str(tmp_path / species / f"{name}.png"))
+    d = copy.deepcopy(MINIMAL)
+    d["leaf_textures"] = {"a": {"source": "judged", "aspect": 0.5, "length_px": 64},
+                          "b": {"source": "judged", "aspect": 0.5, "length_px": 64, "tip": 2.0}}
+    d["shoot_types"]["mainstem"]["leaf_prototype"] = {
+        "leaf_texture_file": {"texture": {0: "a", -1: "b", 1: "b"}, "source": "judged"}}
+    spec = parse_spec(d)
+    sc, pa = _scene_pa()
+    register(pa, spec)
+    pa.loadPlantModelFromLibrary("testplant")
+    files = pa.shoot_types["mainstem"].phytomer_parameters.leaf.prototype.leaf_texture_file
+    assert sorted(files) == [-1, 0, 1]
+    assert files[0].endswith("a.png") and files[1].endswith("b.png") and files[-1] == files[1]
+    bad = copy.deepcopy(d)
+    bad["shoot_types"]["mainstem"]["leaf_prototype"]["leaf_texture_file"]["texture"] = {0: "zzz"}
+    with pytest.raises(SpeciesError, match="leaf_textures"):
+        parse_spec(bad)

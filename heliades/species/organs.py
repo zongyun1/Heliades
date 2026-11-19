@@ -25,6 +25,10 @@ Forms (one key each):
 ``{corolla: {...}}``
     procedural flower: ``petals`` petals radiating from a central cone (``center_color``), cupped forward by ``cup``;
     a closed flower is the same petals folded into a bud.
+``{capitulum: {...}}``
+    procedural composite head (Asteraceae), flower or fruit: a disc of florets 1 across facing +x on a rounded green
+    receptacle, a ring of involucral bracts and ``rays`` ray florets; a closed flower is a bud of bracts folded over
+    the disc (``bud_fraction`` of the diameter). The scale is therefore the *disc* diameter (rays extend beyond it).
 
 Procedural organs are triangles with vertex colours (no texture) wrapped in a polymesh, and draw nothing from the
 Context stream. The hooks are cached by (species, organ, description) so identical descriptions share one function
@@ -106,7 +110,7 @@ def validate_organ(spec, organ: str, where: str):
         return ("none",)
     if not isinstance(spec, dict):
         raise OrganSpecError(f"{where}: expected template, none or a mapping")
-    forms = {"library", "obj", "obj_variants", "ellipsoid", "corolla"}
+    forms = {"library", "obj", "obj_variants", "ellipsoid", "corolla", "capitulum"}
     keys = set(spec) - {"source", "note", "height", "count"}
     form = keys & forms
     if len(form) != 1 or keys - forms:
@@ -136,6 +140,8 @@ def validate_organ(spec, organ: str, where: str):
         if organ != "fruit":
             raise OrganSpecError(f"{where}: ellipsoid is a fruit shape")
         return ("ellipsoid", _block(spec["ellipsoid"], FRUIT_ELLIPSOID_KEYS, where + ".ellipsoid"))
+    if form == "capitulum":
+        return ("capitulum", _block(spec["capitulum"], CAPITULUM_KEYS, where + ".capitulum"))
     if organ != "flower":
         raise OrganSpecError(f"{where}: corolla is a flower shape")
     return ("corolla", _block(spec["corolla"], COROLLA_KEYS, where + ".corolla"))
@@ -283,8 +289,137 @@ def organ_hook(species: str, organ: str, norm):
     elif form == "ellipsoid":
         V, T, C = ellipsoid_mesh(params)
         h.implement(lambda ctx, subdivisions, build_parameters=None: _mesh(ctx, V, T, C))
+    elif form == "capitulum":
+        if organ == "fruit":
+            V, T, C = capitulum_mesh(params, True)
+            h.implement(lambda ctx, subdivisions, build_parameters=None: _mesh(ctx, V, T, C))
+        else:
+            cap = {s: capitulum_mesh(params, s) for s in (True, False)}
+            h.implement(lambda ctx, subdivisions, is_open, build_parameters=None: _mesh(ctx, *cap[bool(is_open)]))
     else:
         meshes = {s: corolla_mesh(params, s) for s in (True, False)}
         h.implement(lambda ctx, subdivisions, is_open, build_parameters=None: _mesh(ctx, *meshes[bool(is_open)]))
     _HOOKS[key] = h
     return h
+
+
+# ---- capitulum (composite head; added in S1 for the sunflower) -----------------------------------------
+
+CAPITULUM_KEYS = {
+    "disc_color": (list, [0.30, 0.18, 0.07], None, None),         # the disc florets
+    "disc_center_color": (list, [0.36, 0.30, 0.10], None, None),  # the young (central) florets
+    "disc_center_fraction": (float, 0.3, 0.0, 1.0),               # radius of the central zone / disc radius
+    "dome": (float, 0.04, -0.5, 0.5),                             # forward rise of the disc centre, in diameters
+    "thickness": (float, 0.12, 0.0, 1.0),                         # depth of the receptacle behind the disc
+    "back_color": (list, [0.30, 0.42, 0.16], None, None),         # receptacle (back of the head)
+    "rays": (int, 0, 0, 200),                                     # ray florets
+    "ray_length": (float, 0.3, 0.0, 2.0),                         # in disc diameters
+    "ray_width": (float, 0.7, 0.05, 1.0),                         # fraction of the angular sector
+    "ray_angle": (float, 0.0, -90.0, 90.0),                       # degrees forward (+) / back (-) of the disc plane
+    "ray_color": (list, [0.98, 0.78, 0.05], None, None),
+    "bracts": (int, 0, 0, 200),                                   # involucral bracts (phyllaries)
+    "bract_length": (float, 0.12, 0.0, 1.0),                      # in disc diameters
+    "bract_color": (list, [0.26, 0.40, 0.14], None, None),
+    "bud_fraction": (float, 0.45, 0.05, 1.0),                     # closed head (bud): diameter / open disc diameter
+    "rings": (int, 6, 2, 64),
+    "segments": (int, 24, 6, 256),
+}
+
+
+def capitulum_mesh(p, is_open: bool):
+    """(vertices, triangles, per-triangle colours) of a composite head, base at the origin, facing +x.
+
+    Open: receptacle (x from 0 to ``thickness``, radius 0 -> 0.5), disc (radius 0.5, centre raised by ``dome``),
+    bracts pointing out and back from the rim, rays out from the rim tilted by ``ray_angle``. Closed (a bud): the
+    receptacle with the bracts folded forward over it, all scaled by ``bud_fraction``."""
+    seg, nr = p["segments"], p["rings"]
+    th = p["thickness"]
+    verts, tris, cols = [], [], []
+
+    def add(v):
+        verts.append(tuple(float(c) for c in v))
+        return len(verts) - 1
+
+    def circ(x, r, j):
+        a = 2 * math.pi * j / seg
+        return (x, r * math.cos(a), r * math.sin(a))
+
+    s = 1.0 if is_open else p["bud_fraction"]
+    R = 0.5 * s
+    # receptacle: r = R sin(pi/2 u), x = th s (1 - cos(pi/2 u)), u from 0 (base) to 1 (rim)
+    back = [add((0.0, 0.0, 0.0))]
+    for i in range(1, nr + 1):
+        u = i / nr
+        back.append([add(circ(th * s * (1 - math.cos(0.5 * math.pi * u)), R * math.sin(0.5 * math.pi * u), j))
+                     for j in range(seg)])
+    bc = p["back_color"]
+    for j in range(seg):
+        tris.append((back[0], back[1][(j + 1) % seg], back[1][j]))
+        cols.append(bc)
+    for i in range(1, nr):
+        for j in range(seg):
+            a, b, c, d = back[i][j], back[i][(j + 1) % seg], back[i + 1][(j + 1) % seg], back[i + 1][j]
+            tris += [(a, c, b), (a, d, c)]
+            cols += [bc, bc]
+    x_rim = th * s
+    if is_open:
+        # disc: rings from the rim to the centre
+        dc, cc, cf = p["disc_color"], p["disc_center_color"], p["disc_center_fraction"]
+        prev = back[nr]
+        for i in range(nr - 1, 0, -1):
+            r = R * i / nr
+            x = x_rim + p["dome"] * (1 - (r / R) ** 2)
+            ring = [add(circ(x, r, j)) for j in range(seg)]
+            c = cc if (r + 0.5 * R / nr) / R <= cf else dc
+            for j in range(seg):
+                a, b, c2, d = prev[j], prev[(j + 1) % seg], ring[(j + 1) % seg], ring[j]
+                tris += [(a, b, c2), (a, c2, d)]
+                cols += [c, c]
+            prev = ring
+        centre = add((x_rim + p["dome"], 0.0, 0.0))
+        c = cc if cf > 0 else dc
+        for j in range(seg):
+            tris.append((prev[j], prev[(j + 1) % seg], centre))
+            cols.append(c)
+    # bracts: open = out and back from just behind the rim; closed = forward, converging over the bud
+    nb, bl = p["bracts"], p["bract_length"] * s
+    for k in range(nb):
+        a = 2 * math.pi * (k + 0.5 * (k % 2)) / nb
+        half = math.pi / nb * 0.9
+        x0, r0 = 0.85 * x_rim, 0.97 * R
+        if is_open:
+            tip = (x0 - 0.55 * bl, (r0 + 0.8 * bl) * math.cos(a), (r0 + 0.8 * bl) * math.sin(a))
+        else:
+            reach = max(0.0, r0 - 1.6 * bl) + 0.08 * R
+            tip = (x_rim + 1.1 * bl, reach * math.cos(a), reach * math.sin(a))
+        lv = add((x0, r0 * math.cos(a - half), r0 * math.sin(a - half)))
+        rv = add((x0, r0 * math.cos(a + half), r0 * math.sin(a + half)))
+        tris.append((lv, rv, add(tip)))
+        cols.append(p["bract_color"])
+    if not is_open:
+        # the top of the bud under the bract tips: a green cap
+        cap = add((x_rim + bl, 0.0, 0.0))
+        ring = back[nr]
+        for j in range(seg):
+            tris.append((ring[j], ring[(j + 1) % seg], cap))
+            cols.append(p["bract_color"])
+        return np.asarray(verts, f32), tris, cols
+    # rays: a lanceolate quad + a tip triangle each
+    n, L = p["rays"], p["ray_length"]
+    tilt = math.radians(p["ray_angle"])
+    r0, x0 = 0.95 * R, x_rim + 0.25 * p["dome"]
+    for k in range(n):
+        a = 2 * math.pi * (k + 0.25) / n
+        half = math.pi / n * p["ray_width"]
+
+        def at(t, w):
+            rr = r0 + t * L * math.cos(tilt)
+            xx = x0 + t * L * math.sin(tilt)
+            return (xx, rr * math.cos(a + w), rr * math.sin(a + w))
+        wm = 1.2 * half * r0 / (r0 + 0.55 * L * math.cos(tilt))
+        b0, b1 = add(at(0.0, -0.6 * half)), add(at(0.0, 0.6 * half))
+        m0, m1 = add(at(0.55, -wm)), add(at(0.55, wm))
+        tip = add(at(1.0, 0.0))
+        tris += [(b0, b1, m1), (b0, m1, m0), (m0, m1, tip)]
+        cols += [p["ray_color"]] * 3
+    return np.asarray(verts, f32), tris, cols

@@ -96,6 +96,7 @@ own template label is modified in place (`mainstem:` with no `from`). Child shoo
 | `{weibull: [shape, scale], source: s}` | float fields | `weibullDistribution(shape, scale)` |
 | `{discrete: [v1, v2, ...], source: s}` | int fields | `discreteValues(...)` |
 | `{texture: <name>, source: s}` | `leaf_texture_file` | a generated leaf texture of this file |
+| `{texture: {<index>: <name>, ...}, source: s}` | `leaf_texture_file` | one generated texture per compound-leaf index (`-n..n`, 0 = tip; the pea's tendrils / leaflets / stipules) |
 
 Every form takes an optional `note:`. Applying an override is the C++ statement on the copied struct (`operator=`,
 `*Distribution`): no random draws. A distribution on a parameter that has no generator yet (`leaflet_scale`,
@@ -157,6 +158,7 @@ inflorescence scales it by `flower_prototype_scale` / `fruit_prototype_scale`, s
 | `{obj_variants: "assets/obj/Cucumber/fruit_{index:02d}.obj", count: 6}` | one of n OBJs, `randu(0, n-1)`; flowers need `{state}` (open / closed) |
 | `{ellipsoid: {diameter, bulge, color, calyx_color, calyx_fraction, rings, segments}}` | procedural fruit (diameter relative to the length; `bulge` > 0 widens towards the tip) |
 | `{corolla: {petals, petal_width, cup, color, center_color, center_diameter, center_length, bud_length}}` | procedural flower; closed = petals folded into a bud |
+| `{capitulum: {disc_color, disc_center_color, disc_center_fraction, dome, thickness, back_color, rays, ray_length, ray_width, ray_angle, ray_color, bracts, bract_length, bract_color, bud_fraction, rings, segments}}` | procedural composite head (flower or fruit): disc 1 across facing +x on a green receptacle, involucral bracts, ray florets beyond the disc (`ray_length` in disc diameters, `ray_angle` > 0 forward); closed = a bract-covered bud `bud_fraction` across. The scale is the disc diameter (sunflower) |
 
 Each takes `source:` / `note:`. Procedural organs draw nothing from the Context stream.
 
@@ -223,7 +225,7 @@ leaf_textures:
 ```
 
 Keys: `length_px`, `aspect`, `widest_at`, `plateau`, `base`, `tip`, `asymmetry`, `lobes {count, depth, sharpness}`,
-`serration {count, depth}`, `profile [[t, p], ...]` (replaces the formula), `color`, `midrib_color`, `midrib_width`,
+`serration {count, depth}`, `sinus {depth, width}` (cordate basal notch; the midrib stays solid across it), `profile [[t, p], ...]` (replaces the formula), `color`, `midrib_color`, `midrib_width`,
 `vein_color`, `veins`, `vein_style` (pinnate / parallel), `vein_angle`, `vein_width`, `margin_shade`. The image is an
 RGBA PNG, alpha 255 inside the blade and 0 outside, `u` along the leaf. Generate / check with
 `python -m heliades.species.leaf_texture [--check] [species ...]`; the committed PNGs are tested to equal the tool's
@@ -246,6 +248,6 @@ against expected; `tests/species/test_traits.py` asserts every mean is in range.
 
 * New growth logic beyond the rule registry (a rule is Python in `heliades/species/rules.py`, reviewed and tested).
 * Shoot-type-specific build logic of the template builders other than through `builder: template`.
-* Leaf texture series (age-staged textures), compound-leaf texture maps per leaflet, class maps for generated leaves.
-* Organ shapes other than OBJ assets, ellipsoids and corollas (no pods, spikes with awns, panicles).
+* Leaf texture series (age-staged textures), class maps for generated leaves.
+* Organ shapes other than OBJ assets, ellipsoids, corollas and capitula (no pods, spikes with awns, panicles).
 * Temperature-driven phenology: all thresholds are in degree-days at the model's one per day.

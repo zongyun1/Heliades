@@ -293,7 +293,15 @@ def parse_override(ctx, raw, section, name, kind, lo, hi, where, sources, textur
             ctx.error(f"{w}: expected a file name")
         args = v
     elif kind == "texture_map":
-        if op == "texture":
+        if op == "texture" and isinstance(v, dict):
+            # per compound-leaf index generated textures (S1): {texture: {0: tip_name, -1: a, 1: a, ...}}
+            args = {}
+            for k, x in v.items():
+                if isinstance(k, bool) or not isinstance(k, int) or not isinstance(x, str) or x not in textures:
+                    ctx.error(f"{w}: expected {{compound-leaf index: one of this file's leaf_textures "
+                              f"({', '.join(textures) or 'none'})}}, got {k!r}: {x!r}")
+                args[k] = x
+        elif op == "texture":
             if v not in textures:
                 ctx.error(f"{w}: '{v}' is not one of this file's leaf_textures ({', '.join(textures) or 'none'})")
             args = v
@@ -659,6 +667,10 @@ def apply_override(sp, ov: Override, generator, species: SpeciesSpec):
         return
     if ov.kind == "rgb":
         setattr(obj, ov.field, make_RGBcolor(*ov.args))
+    elif ov.kind == "texture_map" and ov.op == "texture" and isinstance(ov.args, dict):
+        from .assets import ensure_leaf_texture
+        setattr(obj, ov.field, {k: ensure_leaf_texture(species.name, t, species.leaf_textures[t])
+                                for k, t in ov.args.items()})
     elif ov.kind == "texture_map" and ov.op == "texture":
         from .assets import ensure_leaf_texture
         setattr(obj, ov.field, {0: ensure_leaf_texture(species.name, ov.args, species.leaf_textures[ov.args])})

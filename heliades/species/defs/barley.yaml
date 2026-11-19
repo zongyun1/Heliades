@@ -1,0 +1,96 @@
+# Barley, built on the Helios wheat.
+#
+# Pilot species of the Heliades species format. The wheat template supplies the grass architecture: sessile strap
+# leaves on a culm of 8 phytomers whose upper four internodes elongate, tillers from the lowest axils (build parameter
+# tiller_count), the flag leaf turned off the culm, and the ear as the terminal fruit (WheatPhytomerCreationFunction,
+# kept as the creation rule). This file changes the leaf (a shorter, wider, paler strap: a generated texture), the
+# culm (shorter internodes, a faster phyllochron), tillering (three tillers by default), the ear (the Helios wheat
+# spike OBJ, smaller: barley's is narrower and its awns longer, which the asset does not show) and the grain-fill
+# period.
+#
+# Every value is "judged" (general agronomic knowledge of two-row spring barley); none is taken from one cited
+# measurement. Replace them first when calibrating against phenotyping data.
+format: heliades-species/1
+name: barley
+template: wheat
+
+metadata:
+  latin_name: Hordeum vulgare
+  common_name: barley
+  cultivar: two-row spring barley
+  description: >-
+    Tillering annual grass 0.6-1.0 m tall; 7-9 leaves on the main culm, blades 15-25 cm long and about 1-1.5 cm wide;
+    an awned spike 5-10 cm long (without awns) heading about two months after emergence. Plant age 0 is emergence.
+
+sources: {}
+
+leaf_textures:
+  barley_leaf:
+    source: judged
+    note: linear blade tapering to an acute tip, pale glaucous green, parallel veins
+    length_px: 1024
+    aspect: 0.07
+    widest_at: 0.12
+    plateau: 0.45
+    base: 0.5
+    tip: 0.8
+    color: [0.36, 0.50, 0.26]
+    midrib_color: [0.55, 0.65, 0.42]
+    midrib_width: 0.08
+    veins: 4
+    vein_style: parallel
+    vein_width: 0.02
+    margin_shade: 0.1
+
+shoot_types:
+  mainstem:
+    shoot:
+      phyllochron_min: {value: 7.5, source: judged, note: "a leaf every 7.5 days (about 100 degree-days at 13 C mean temperature, at the model's 1 dd per day)"}
+      internode_length_max: {value: 0.155, source: judged}
+    peduncle:
+      length: {value: 0.22, source: judged}
+    leaf:
+      prototype_scale: {value: 0.22, source: judged, note: longest blade (m)}
+      pitch: {uniform: [-45.0, -25.0], source: judged}
+    leaf_prototype:
+      leaf_texture_file: {texture: barley_leaf, source: judged}
+      leaf_class_map_file: {value: {}, source: judged, note: the wheat's class map belongs to its leaf image}
+      leaf_aspect_ratio: {value: 0.07, source: judged, note: "the texture's width / length: about 1.4 cm wide at 20 cm"}
+      wave_amplitude: {value: 0.03, source: judged}
+    inflorescence:
+      fruit_prototype_scale: {value: 0.085, source: judged, note: spike length with the base of the awns (m)}
+    fruit: {obj: WheatSpike.obj, height: 0, source: judged, note: "the Helios wheat spike asset, scaled down"}
+  tiller:
+    peduncle:
+      length: {value: 0.2, source: judged}
+    leaf:
+      prototype_scale: {value: 0.2, source: judged}
+      pitch: {uniform: [-45.0, -25.0], source: judged}
+    leaf_prototype:
+      leaf_texture_file: {texture: barley_leaf, source: judged}
+      leaf_class_map_file: {value: {}, source: judged}
+      leaf_aspect_ratio: {value: 0.07, source: judged}
+      wave_amplitude: {value: 0.03, source: judged}
+    shoot:
+      phyllochron_min: {value: 7.5, source: judged}
+      internode_length_max: {value: 0.145, source: judged}
+    inflorescence:
+      fruit_prototype_scale: {value: 0.075, source: judged}
+    fruit: {obj: WheatSpike.obj, height: 0, source: judged}
+
+build:
+  builder: template
+  phenology:
+    fruit_maturity: {value: 32, source: judged, note: grain fill from anthesis to physiological maturity}
+  max_age: {value: 120, source: judged, note: harvest ripe about 100-110 days after emergence}
+  build_parameter_defaults:
+    tiller_count: {value: 3, source: judged, note: fertile tillers per plant at field density}
+
+traits:
+  - {trait: plant_height, age: 80, range: [0.60, 1.10], source: judged}
+  - {trait: main_stem_nodes, age: 80, range: [7, 10], source: judged, note: leaves on the main culm}
+  - {trait: leaf_length_max, age: 50, range: [0.15, 0.30], source: judged}
+  - {trait: shoot_count, age: 60, range: [3, 6], source: judged, note: main culm and tillers}
+  - {trait: first_fruit_day, age: 90, range: [45, 75], source: judged, note: heading (the spike appears), seeds: 3}
+  - {trait: fruit_count, age: 90, range: [2, 6], source: judged, note: spikes per plant}
+  - {trait: fruit_length_max, age: 90, range: [0.05, 0.14], source: judged, note: spike with the base of the awns}

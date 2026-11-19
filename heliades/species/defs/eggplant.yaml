@@ -1,0 +1,145 @@
+# Eggplant (aubergine), built on the Helios tomato.
+#
+# Pilot species of the Heliades species format. The tomato template supplies the sympodial Solanum shoot system
+# (a determinate main stem that branches into leaders), the seedling ramps and the bud rules; this file changes the
+# leaf (simple, large, sinuate-lobed: a generated texture), the stem (thicker, stiffer, purplish), the flowers
+# (violet, a few per cyme: procedural corolla) and the fruit (large dark-purple berry with a green calyx: procedural
+# ellipsoid), and the phenology.
+#
+# Every value is "judged": set from general horticultural knowledge of the crop (the flora and extension descriptions
+# of the species agree on the ranges used here), not taken from one cited measurement. They are the values to
+# replace first when the species is calibrated against phenotyping data.
+format: heliades-species/1
+name: eggplant
+template: tomato
+
+metadata:
+  latin_name: Solanum melongena
+  common_name: eggplant
+  cultivar: large-fruited oval type (e.g. 'Black Beauty'), field / greenhouse transplant
+  description: >-
+    Erect, branched, somewhat woody plant 0.5-1.5 m tall; simple ovate leaves with wavy-lobed margins; violet flowers
+    one to three per cyme; a glossy dark-purple ovoid berry 12-25 cm long. Plant age 0 is a transplant with one node.
+
+sources: {}
+
+leaf_textures:
+  eggplant_leaf:
+    source: judged
+    note: ovate, base slightly unequal, margin shallowly sinuate-lobed, grey-green (stellate hairs)
+    length_px: 512
+    aspect: 0.62
+    widest_at: 0.42
+    base: 0.5
+    tip: 1.25
+    asymmetry: 0.08
+    lobes: {count: 4, depth: 0.10, sharpness: 0.8}
+    color: [0.30, 0.40, 0.22]
+    midrib_color: [0.52, 0.50, 0.40]
+    veins: 6
+    vein_angle: 55.0
+    margin_shade: 0.12
+
+shoot_types:
+  mainstem:
+    child_shoot_types: {value: {branch: 1.0}, source: judged, note: side branches are shorter than the main stem}
+    shoot:
+      max_nodes: {value: 24, source: judged, note: nodes per shoot over a season}
+      determinate_shoot_growth: {value: false, source: judged, note: "sympodial like the tomato, but the leaders keep growing all season: modelled as indeterminate shoots"}
+      internode_length_max: {normal: [0.036, 0.006], source: judged}
+      phyllochron_min: {value: 2.5, source: judged}
+      tortuosity: {value: 20.0, source: judged, note: stiffer and straighter than the tomato}
+      girth_area_factor: {value: 3.0, source: judged, note: woody lower stem}
+      vegetative_bud_break_probability_min: {value: 0.15, source: judged}
+      flower_bud_break_probability: {value: 0.3, source: judged}
+      fruit_set_probability: {value: 0.4, source: judged, note: "only long- and medium-styled flowers set; fruit load limits further set"}
+    internode:
+      radius_initial: {value: 0.0025, source: judged}
+      color: {value: [0.30, 0.27, 0.20], source: judged, note: purplish-green stems}
+    petiole:
+      length: {normal: [0.07, 0.015], source: judged}
+      radius: {value: 0.0028, source: judged}
+      pitch: {normal: [45.0, 10.0], source: judged}
+      curvature: {uniform: [-100.0, -30.0], source: judged}
+      taper: {value: 0.5, source: judged}
+      color: {value: [0.33, 0.33, 0.20], source: judged}
+    leaf:
+      leaves_per_petiole: {value: 1, source: judged, note: simple leaf}
+      leaflet_offset: {value: 0.0, source: judged}
+      leaflet_scale: {value: 1.0, source: judged}
+      pitch: {normal: [-20.0, 10.0], source: judged}
+      yaw: {normal: [0.0, 8.0], source: judged}
+      roll: {normal: [0.0, 8.0], source: judged}
+      prototype_scale: {normal: [0.20, 0.03], source: judged, note: blade length of a mature leaf (m)}
+    peduncle:
+      length: {normal: [0.05, 0.01], source: judged}
+      radius: {value: 0.0025, source: judged}
+      pitch: {value: 40.0, source: judged}
+      curvature: {value: -250.0, source: judged}
+      color: {value: [0.30, 0.38, 0.20], source: judged}
+    inflorescence:
+      flowers_per_peduncle: {uniform: [1, 3], source: judged}
+      flower_offset: {value: 0.2, source: judged}
+      pitch: {value: 60.0, source: judged}
+      flower_prototype_scale: {value: 0.04, source: judged, note: corolla 3.5-5 cm across}
+      fruit_prototype_scale: {normal: [0.17, 0.02], source: judged, note: fruit length (m)}
+      fruit_gravity_factor_fraction: {value: 0.7, source: judged, note: the fruit hangs}
+      unique_prototypes: {value: 3, source: judged}
+    leaf_prototype:
+      leaf_texture_file: {texture: eggplant_leaf, source: judged}
+      leaf_aspect_ratio: {value: 0.62, source: judged, note: the texture's width / length}
+      build_petiolule: {value: false, source: judged}
+      midrib_fold_fraction: {uniform: [0.0, 0.15], source: judged}
+      longitudinal_curvature: {uniform: [-0.30, -0.05], source: judged}
+      lateral_curvature: {uniform: [-0.20, 0.0], source: judged}
+      wave_period: {value: 0.25, source: judged}
+      wave_amplitude: {uniform: [0.01, 0.04], source: judged}
+      subdivisions: {value: 8, source: judged}
+      unique_prototypes: {value: 6, source: judged}
+    flower:
+      source: judged
+      corolla: {petals: 5, petal_width: 0.75, cup: 0.12, color: [0.55, 0.36, 0.78], center_color: [0.95, 0.82, 0.15],
+                center_diameter: 0.18, center_length: 0.3, bud_length: 0.5}
+    fruit:
+      source: judged
+      ellipsoid: {diameter: 0.5, bulge: 0.25, color: [0.16, 0.05, 0.14], calyx_color: [0.30, 0.45, 0.20],
+                  calyx_fraction: 0.14, rings: 14, segments: 14}
+    phytomer_creation:
+      - {rule: kill_buds, which: floral, node_below: 7, rank: 0, source: judged, note: first flower after about 7 leaves}
+      - {rule: kill_buds, which: both, rank_above: 1, source: judged, note: the tomato's (template)}
+      - {rule: leaf_scale_ramp, intercept: 0.4, slope: 0.6, days: 25.0, source: judged, note: young transplant leaves are small}
+      - {rule: internode_scale_ramp, intercept: 0.6, slope: 0.4, days: 20.0, source: judged}
+  branch:
+    from: mainstem          # the eggplant mainstem above, not the tomato's
+    child_shoot_types: {value: {branch: 1.0}, source: judged}
+    shoot:
+      max_nodes: {value: 14, source: judged}
+      internode_length_max: {normal: [0.035, 0.006], source: judged}
+      insertion_angle_tip: {uniform: [35.0, 55.0], source: judged}
+      vegetative_bud_break_probability_min: {value: 0.05, source: judged}
+
+build:
+  builder: generic
+  source: judged
+  base_rotation: {pitch: 0, yaw: {randu: [0, 2pi]}, roll: {randu: [0, 2pi]}}
+  base_stem: {shoot_type: mainstem, nodes: 1, internode_radius: 0.003, internode_length_max: shoot_type,
+              internode_length_scale_factor_fraction: 0.01, leaf_scale_factor_fraction: 0.01, radius_taper: 0.0}
+  phenology:
+    dormancy_break: {value: 0, source: judged}
+    flower_initiation: {value: 30, source: judged}
+    flower_opening: {value: 8, source: judged}
+    fruit_set: {value: 5, source: judged}
+    fruit_maturity: {value: 30, source: judged, note: "anthesis to commercial harvest, about four weeks"}
+    dormancy: {value: 1000, source: judged}
+  max_age: {value: 200, source: judged}
+
+traits:
+  - {trait: plant_height, age: 60, range: [0.30, 0.90], source: judged, note: two months after transplanting}
+  - {trait: plant_height, age: 120, range: [0.50, 1.50], source: judged}
+  - {trait: leaf_length_max, age: 60, range: [0.12, 0.30], source: judged, note: blade 10-30 cm}
+  - {trait: internode_length_mean, age: 120, range: [0.02, 0.09], source: judged}
+  - {trait: leaf_count, age: 60, range: [12, 80], source: judged}
+  - {trait: first_flower_day, age: 90, range: [30, 65], source: judged, note: first open flower 4-8 weeks after transplanting}
+  - {trait: first_fruit_day, age: 110, range: [40, 85], source: judged}
+  - {trait: fruit_length_max, age: 120, range: [0.12, 0.25], source: judged}
+  - {trait: fruit_count, age: 120, range: [2, 15], source: judged}

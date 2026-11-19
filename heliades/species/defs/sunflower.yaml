@@ -1,0 +1,173 @@
+# Sunflower (single-headed oilseed / confection type), built on the Helios soybean.
+#
+# Template choice: the soybean, not a grass. The soybean gives a dicot with petiolate blades on one upright main
+# stem (shoot type `trifoliate`) appended to a one-node base with an opposite pair of small leaves (`unifoliate`):
+# that base is the sunflower's pair of cotyledons, and the main stem is the sunflower stem once its leaves are made
+# simple (leaves_per_petiole 1). Branching is killed (no child shoot types, every axillary bud dead) and the stem ends
+# in one terminal floral bud (max_terminal_floral_buds 1), the capitulum. maize / sorghum also end in a terminal
+# organ, but their phytomers are sheathed strap leaves on a culm (WheatPhytomerCreationFunction-style sheath / blade
+# logic), which a sunflower does not have.
+#
+# The head is the procedural `capitulum` organ (added for this species): the closed flower is the green star bud
+# (R1-R4), the open flower the yellow-rayed head at anthesis (R5), the fruit the ripening head with wilted rays,
+# which hangs (fruit_gravity_factor_fraction) on the bent neck (peduncle curvature) -- the nodding head of R7-R9.
+# inflorescence_maturity_period 0: the fruit head is made at its full size (the head reaches its final diameter
+# around anthesis; seed fill does not widen it much), instead of Helios's default 25 % -> 100 % fruit growth.
+#
+# Every value is "judged" (general agronomic knowledge of the crop), not taken from one cited measurement.
+format: heliades-species/1
+name: sunflower
+template: soybean
+
+metadata:
+  latin_name: Helianthus annuus
+  common_name: sunflower
+  cultivar: single-headed oilseed / confection hybrid, field grown
+  description: >-
+    Erect unbranched annual 1.5-2.5 m tall; 25-35 large alternate, long-petioled, broadly ovate to cordate, serrate
+    leaves (the lowest pairs opposite); one terminal capitulum 15-30 cm across with yellow ray florets and a brown
+    disc, nodding at maturity. Plant age 0 is emergence (cotyledons open).
+
+sources: {}
+
+leaf_textures:
+  sunflower_leaf:
+    source: judged
+    note: "broadly ovate, base truncate to shallowly cordate, acuminate tip, serrate margin, rough dark green"
+    length_px: 512
+    aspect: 0.78
+    widest_at: 0.32
+    base: 0.30
+    tip: 1.6
+    sinus: {depth: 0.07, width: 0.35}
+    serration: {count: 20, depth: 0.035}
+    color: [0.20, 0.36, 0.12]
+    midrib_color: [0.45, 0.55, 0.30]
+    veins: 5
+    vein_angle: 45.0
+    margin_shade: 0.15
+  sunflower_cotyledon:
+    source: judged
+    note: oblong-oval cotyledon with an obtuse tip
+    length_px: 256
+    aspect: 0.5
+    widest_at: 0.5
+    base: 0.6
+    tip: 0.6
+    color: [0.30, 0.45, 0.18]
+    veins: 0
+    margin_shade: 0.08
+
+shoot_types:
+  unifoliate:
+    # the cotyledon node
+    leaf:
+      prototype_scale: {value: 0.035, source: judged, note: cotyledons 3-4 cm long}
+      pitch: {uniform: [-15.0, 5.0], source: judged}
+    leaf_prototype:
+      leaf_texture_file: {texture: sunflower_cotyledon, source: judged}
+      leaf_aspect_ratio: {value: 0.5, source: judged, note: the texture's width / length}
+      build_petiolule: {value: false, source: judged}
+    internode:
+      color: {value: [0.35, 0.40, 0.18], source: judged, note: hypocotyl}
+  trifoliate:
+    # the main stem (label kept for the soybean builder)
+    child_shoot_types: {value: {}, source: judged, note: single-headed hybrids do not branch}
+    shoot:
+      max_nodes: {uniform: [27, 31], source: judged, note: "leaves on the stem (25-35)"}
+      phyllochron_min: {value: 1.4, source: judged, note: "a leaf every 1.4 days (the bud is visible about 40 days after emergence)"}
+      internode_length_max: {normal: [0.10, 0.008], source: judged, note: "upper internodes; the lower ones are shortened by the ramp below (2 m over about 29 internodes)"}
+      elongation_rate_max: {value: 0.035, source: judged, note: "internodes keep elongating for weeks: the stem grows most between bud and anthesis"}
+      gravitropic_curvature: {value: 800.0, source: judged, note: stiff upright stem}
+      tortuosity: {value: 3.0, source: judged}
+      girth_area_factor: {value: 4.0, source: judged, note: stem 2-4 cm thick at the base}
+      vegetative_bud_break_probability_min: {value: 0.0, source: judged}
+      vegetative_bud_break_probability_max: {value: 0.0, source: judged}
+      flower_bud_break_probability: {value: 1.0, source: judged, note: the terminal head always develops}
+      fruit_set_probability: {value: 1.0, source: judged}
+      max_terminal_floral_buds: {value: 1, source: judged, note: one terminal capitulum}
+    internode:
+      phyllotactic_angle: {normal: [137.5, 8.0], source: judged, note: spiral (alternate) phyllotaxis above the first pairs}
+      radius_initial: {value: 0.004, source: judged}
+      pitch: {value: 2.0, source: judged, note: straight stem}
+      color: {value: [0.26, 0.36, 0.13], source: judged, note: green hispid stem}
+      max_floral_buds_per_petiole: {value: 0, source: judged, note: no axillary heads}
+      max_vegetative_buds_per_petiole: {value: 0, source: judged, note: no branches}
+    petiole:
+      length: {normal: [0.15, 0.03], source: judged, note: petioles 10-20 cm}
+      radius: {value: 0.0035, source: judged}
+      pitch: {uniform: [35.0, 55.0], source: judged}
+      curvature: {uniform: [-250.0, -100.0], source: judged, note: petioles arch outwards and down}
+      taper: {value: 0.3, source: judged}
+      color: {value: [0.30, 0.40, 0.15], source: judged}
+    leaf:
+      leaves_per_petiole: {value: 1, source: judged, note: simple leaf}
+      leaflet_offset: {value: 0.0, source: judged}
+      leaflet_scale: {value: 1.0, source: judged}
+      prototype_scale: {normal: [0.23, 0.03], source: judged, note: "blade length of a mid-stem leaf (m)"}
+      pitch: {uniform: [-30.0, 0.0], source: judged}
+      yaw: {value: 0.0, source: judged}
+      roll: {uniform: [-10.0, 10.0], source: judged}
+    leaf_prototype:
+      leaf_texture_file: {texture: sunflower_leaf, source: judged}
+      leaf_aspect_ratio: {value: 0.78, source: judged, note: the texture's width / length}
+      build_petiolule: {value: false, source: judged}
+      midrib_fold_fraction: {uniform: [0.0, 0.1], source: judged}
+      longitudinal_curvature: {uniform: [-0.35, -0.15], source: judged, note: the tip droops}
+      lateral_curvature: {uniform: [-0.25, -0.05], source: judged}
+      wave_period: {value: 0.3, source: judged}
+      wave_amplitude: {uniform: [0.0, 0.03], source: judged}
+      subdivisions: {value: 8, source: judged}
+      unique_prototypes: {value: 6, source: judged}
+    peduncle:
+      length: {normal: [0.16, 0.02], source: judged, note: "the neck between the top leaf and the head"}
+      radius: {value: 0.008, source: judged}
+      pitch: {value: 0.0, source: judged}
+      curvature: {uniform: [-450.0, -300.0], source: judged, note: "the neck bends over (deg / m)"}
+      color: {value: [0.30, 0.40, 0.15], source: judged}
+      length_segments: {value: 6, source: judged}
+    inflorescence:
+      flowers_per_peduncle: {value: 1, source: judged}
+      pitch: {value: 0.0, source: judged}
+      roll: {value: 0.0, source: judged}
+      flower_prototype_scale: {normal: [0.19, 0.02], source: judged, note: "disc diameter at anthesis (m)"}
+      fruit_prototype_scale: {normal: [0.21, 0.025], source: judged, note: "head diameter at maturity (m), 15-30 cm"}
+      fruit_gravity_factor_fraction: {uniform: [0.45, 0.6], source: judged, note: the ripening head turns face-down}
+      inflorescence_maturity_period: {value: 0.0, source: judged, note: "the fruit head is made at full size (see top)"}
+      unique_prototypes: {value: 1, source: judged}
+    flower:
+      source: judged
+      capitulum: {rays: 30, ray_length: 0.38, ray_width: 0.75, ray_angle: 5.0, ray_color: [0.98, 0.76, 0.04],
+                  disc_color: [0.28, 0.16, 0.06], disc_center_color: [0.40, 0.33, 0.10], disc_center_fraction: 0.25,
+                  dome: 0.02, thickness: 0.14, back_color: [0.28, 0.40, 0.14], bracts: 30, bract_length: 0.12,
+                  bract_color: [0.24, 0.38, 0.12], bud_fraction: 0.4, segments: 30}
+    fruit:
+      source: judged
+      capitulum: {rays: 26, ray_length: 0.18, ray_width: 0.5, ray_angle: -55.0, ray_color: [0.62, 0.45, 0.12],
+                  disc_color: [0.22, 0.15, 0.08], disc_center_color: [0.26, 0.19, 0.09], disc_center_fraction: 0.2,
+                  dome: 0.0, thickness: 0.16, back_color: [0.50, 0.50, 0.18], bracts: 30, bract_length: 0.10,
+                  bract_color: [0.38, 0.36, 0.14], segments: 30}
+    phytomer_creation:
+      - {rule: kill_buds, which: both, source: judged, note: "no branches and no axillary heads (the head is terminal)"}
+      - {rule: leaf_scale_ramp, intercept: 0.2, slope: 0.8, days: 25.0, source: judged, note: the first leaves are small}
+      - {rule: internode_scale_ramp, intercept: 0.12, slope: 0.88, days: 32.0, source: judged, note: short internodes at the base}
+
+build:
+  builder: template
+  phenology:
+    flower_initiation: {value: 0, source: judged, note: "the terminal bud is made closed when the last leaf is (R1)"}
+    flower_opening: {value: 22, source: judged, note: "R1 (bud visible) to R5 (anthesis): about three weeks"}
+    fruit_set: {value: 9, source: judged, note: "anthesis of the whole head (R5.1-R6) about nine days"}
+    fruit_maturity: {value: 35, source: judged, note: "R6 to physiological maturity"}
+  max_age: {value: 130, source: judged}
+
+traits:
+  - {trait: plant_height, age: 30, range: [0.25, 0.70], source: judged, note: "about V10-V12"}
+  - {trait: plant_height, age: 90, range: [1.50, 2.50], source: judged, note: mature height}
+  - {trait: leaf_length_max, age: 60, range: [0.20, 0.35], source: judged, note: largest blades 20-35 cm}
+  - {trait: leaf_count, age: 60, range: [25, 37], source: judged, note: "25-35 stem leaves plus the cotyledons"}
+  - {trait: shoot_count, age: 60, range: [2, 2], source: judged, note: "unbranched: the cotyledon node and the main stem are the two shoots of the template", seeds: 4}
+  - {trait: first_flower_day, age: 60, range: [30, 50], source: judged, note: "the head bud is visible (R1)", seeds: 4}
+  - {trait: first_fruit_day, age: 100, range: [62, 82], source: judged, note: "end of flowering (R6)", seeds: 3}
+  - {trait: fruit_count, age: 100, range: [1, 1], source: judged, note: one head, seeds: 4}
+  - {trait: fruit_length_max, age: 100, range: [0.15, 0.30], source: judged, note: head diameter 15-30 cm}

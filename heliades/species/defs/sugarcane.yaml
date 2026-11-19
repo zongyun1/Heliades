@@ -1,0 +1,126 @@
+# Sugarcane, built on the Helios sorghum.
+#
+# Sugarcane (Saccharum hybrids) is a tall tillering C4 grass of the Andropogoneae, the tribe of sorghum. The sorghum
+# template is chosen over the maize because it has the architecture sugarcane needs and the maize lacks: tillers
+# from the axils of the lowest leaves (build parameter tiller_count, up to six, which gives a stool of up to seven
+# stalks), a crown of short basal internodes below the elongating culm, and long flexible sessile blades
+# (SorghumPhytomerCreationFunction, kept as the first creation rule). The maize's single stalk with an ear and a
+# tassel is further from a stool of cane.
+#
+# What differs from the sorghum: many more phytomers on a slower phyllochron (a crop of about a year, grown from a
+# stalk cutting), longer internodes making a 2.5-4 m stalk, thicker yellowish stalks, very long arching blades of a
+# generated texture, lower leaves that die and drop (leaf lifespan), smaller first leaves on the young primary
+# shoot (a leaf-scale ramp) and no flowering (commercial cane is harvested vegetative).
+#
+# Every value is "judged" (general agronomic knowledge of a 12-month plant crop of commercial cane); none is taken
+# from one cited measurement.
+format: heliades-species/1
+name: sugarcane
+template: sorghum
+
+metadata:
+  latin_name: Saccharum officinarum hybrids
+  common_name: sugarcane
+  cultivar: commercial hybrid cane (plant crop)
+  description: >-
+    Perennial tillering C4 grass grown from stalk cuttings (setts); a stool of 6-12 millable stalks 2.5-4 m tall and
+    2.5-3.5 cm thick, of 25-35 jointed internodes 10-20 cm long; 8-12 green leaves per stalk at a time, blades 1-1.5 m
+    long and 4-6 cm wide with a pale midrib, arching; lower leaves senesce and drop. Harvested at about 12 months,
+    usually before flowering. Plant age 0 is the emergence of the primary shoot from the sett.
+
+sources: {}
+
+leaf_textures:
+  sugarcane_leaf:
+    source: judged
+    note: long linear-lanceolate blade widest near the middle with a long tapering tip and a broad pale midrib
+    length_px: 2048
+    aspect: 0.045
+    widest_at: 0.35
+    plateau: 0.25
+    base: 0.7
+    tip: 1.3
+    color: [0.20, 0.38, 0.15]
+    midrib_color: [0.78, 0.82, 0.62]
+    midrib_width: 0.10
+    veins: 6
+    vein_style: parallel
+    vein_width: 0.015
+    margin_shade: 0.12
+
+shoot_types:
+  mainstem:
+    shoot:
+      max_nodes: {value: 45, source: judged, note: "not reached in a 12-month crop: the stalk keeps growing until harvest"}
+      phyllochron_min: {value: 9.0, source: judged, note: "a leaf about every 9 days in the grand growth period (about 100 degree-days above a 9 C base at 20 C mean)"}
+      internode_length_max: {uniform: [0.10, 0.115], source: judged, note: mature internode length of the millable stalk (m)}
+      elongation_rate_max: {value: 0.03, source: judged, note: an internode elongates over several phyllochrons}
+      girth_area_factor: {value: 7.0, source: judged, note: "stalk 2.5-3.5 cm thick"}
+      flower_bud_break_probability: {value: 0.0, source: judged, note: harvested vegetative}
+      max_terminal_floral_buds: {value: 0, source: judged, note: harvested vegetative}
+      vegetative_bud_break_time: {value: 20, source: judged, note: tillering starts 3-6 weeks after emergence}
+    internode:
+      color: {value: [0.55, 0.53, 0.27], source: judged, note: yellow-green cane with a waxy bloom}
+      radius_initial: {value: 0.005, source: judged}
+    peduncle:
+      length: {value: 0.12, source: judged, note: "the sorghum function makes the last internode this long; no panicle"}
+    leaf:
+      prototype_scale: {value: 1.30, source: judged, note: longest blade (m)}
+      pitch: {uniform: [-45.0, -28.0], source: judged, note: blades leave the stalk at a wider angle than sorghum's}
+    leaf_prototype:
+      leaf_texture_file: {texture: sugarcane_leaf, source: judged}
+      leaf_class_map_file: {value: {}, source: judged, note: the sorghum's class map belongs to its leaf image}
+      leaf_aspect_ratio: {value: 0.045, source: judged, note: "the texture's width / length: about 6 cm wide at 1.3 m"}
+      flexibility: {uniform: [2.6, 3.6], source: judged, note: long blades arch over in their outer half}
+      flexibility_aging: {value: 8.0, source: judged, note: blades droop more within a few weeks of unfolding}
+      wave_amplitude: {value: 0.015, source: judged}
+    phytomer_creation:
+      - {rule: library_function, name: SorghumPhytomerCreationFunction, source: judged, note: the template's}
+      - {rule: leaf_scale_ramp, intercept: 0.3, slope: 0.7, days: 70, source: judged, note: "the first leaves of a shoot from a sett are short (0.3-0.6 m)"}
+  tiller:
+    shoot:
+      max_nodes: {value: 45, source: judged}
+      phyllochron_min: {value: 9.0, source: judged}
+      internode_length_max: {uniform: [0.09, 0.105], source: judged}
+      elongation_rate_max: {value: 0.03, source: judged}
+      girth_area_factor: {value: 7.0, source: judged}
+      flower_bud_break_probability: {value: 0.0, source: judged}
+      max_terminal_floral_buds: {value: 0, source: judged}
+      insertion_angle_tip: {uniform: [8.0, 20.0], source: judged, note: stalks of a stool fan out slightly}
+    internode:
+      color: {value: [0.55, 0.53, 0.27], source: judged}
+      radius_initial: {value: 0.004, source: judged}
+    peduncle:
+      length: {value: 0.11, source: judged}
+    leaf:
+      prototype_scale: {value: 1.25, source: judged}
+      pitch: {uniform: [-45.0, -28.0], source: judged}
+    leaf_prototype:
+      leaf_texture_file: {texture: sugarcane_leaf, source: judged}
+      leaf_class_map_file: {value: {}, source: judged}
+      leaf_aspect_ratio: {value: 0.045, source: judged}
+      flexibility: {uniform: [2.6, 3.6], source: judged}
+      flexibility_aging: {value: 8.0, source: judged}
+      wave_amplitude: {value: 0.015, source: judged}
+    phytomer_creation:
+      - {rule: library_function, name: SorghumPhytomerCreationFunction, source: judged}
+      - {rule: leaf_scale_ramp, intercept: 0.3, slope: 0.7, days: 70, source: judged}
+
+build:
+  builder: template
+  phenology:
+    max_leaf_lifespan: {value: 90, source: judged, note: "a leaf lives about ten phyllochrons: 8-12 green leaves per stalk"}
+  max_age: {value: 400, source: judged, note: a plant crop is harvested at 12-14 months}
+  build_parameter_defaults:
+    tiller_count: {value: 6, source: judged, note: "the template's maximum: a stool of seven stalks (6-12 millable stalks in the field)"}
+
+traits:
+  # Default test run: the two cheap traits (2 seeds); the rest is `slow` (a 330-day stool takes about 20 s per seed).
+  - {trait: plant_height, age: 120, range: [0.8, 2.0], source: judged, seeds: 2, note: "to the top of the leaf canopy; the stalk is just starting to elongate"}
+  - {trait: leaf_length_max, age: 120, range: [1.0, 1.6], source: judged, seeds: 2}
+  - {trait: shoot_count, age: 150, range: [5, 13], source: judged, seeds: 3, slow: true, note: stalks per stool}
+  - {trait: plant_height, age: 330, range: [2.8, 5.0], source: judged, seeds: 3, slow: true, note: to the top of the leaf canopy at harvest}
+  - {trait: main_stem_nodes, age: 330, range: [28, 42], source: judged, seeds: 3, slow: true, note: leaves formed on the primary stalk}
+  - {trait: internode_length_mean, age: 330, range: [0.06, 0.16], source: judged, seeds: 3, slow: true, note: "main stalk including the short crown internodes (mature internodes 10-20 cm)"}
+  - {trait: leaf_count, age: 330, range: [45, 110], source: judged, seeds: 3, slow: true, note: "green leaves per stool: 8-12 per stalk"}
+  - {trait: flower_count, age: 330, range: [0, 0], source: judged, seeds: 3, slow: true, note: harvested before flowering}

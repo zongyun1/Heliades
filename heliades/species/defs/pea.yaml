@@ -1,0 +1,183 @@
+# Field / garden pea (conventional leafed type), built on the Helios soybean.
+#
+# Template choice: the soybean rather than the bean or the cowpea. All three are the same legume skeleton (a one-node
+# `unifoliate` base with an opposite pair of small leaves, the `trifoliate` main stem appended to it, GenericLeaf
+# blades on a petiole); the soybean adds a `branch` shoot type and an indeterminate main stem of 16-19 nodes, close
+# to a pea's 18-25 nodes with a few basal branches. The bean's main stem has only 4-7 nodes, and the cowpea switches
+# on leaf-angle tracking, which a pea does not need.
+#
+# What changes: the leaf is pinnate with 9 "leaflets" per petiole, using a per-leaflet generated texture map (added
+# for this species): from the tip, a terminal tendril and one pair of tendrils (tip, +-1), two pairs of leaflets
+# (+-2, +-3) and, at the petiole base, the pair of large leafy stipules (+-4; leaflet_offset puts the last pair at
+# offset 0, the node). The base node carries two scale leaves (pea emergence is hypogeal: the first nodes have only
+# scale leaves). Distichous phyllotaxis, flowers 1-2 per axil from about node 10 (the Helios bean's white flower and
+# pod OBJ assets), a few basal branches.
+#
+# Every value is "judged" (general agronomic knowledge of the crop), not taken from one cited measurement.
+format: heliades-species/1
+name: pea
+template: soybean
+
+metadata:
+  latin_name: Pisum sativum
+  common_name: pea
+  cultivar: conventional-leafed field / garden pea, indeterminate, unsupported single plant
+  description: >-
+    Glaucous annual climbing by tendrils, 0.5-1 m tall in common field types; 18-25 nodes, the first two with scale
+    leaves; pinnate leaves with 1-3 pairs of ovate leaflets and a branched terminal tendril, two large leafy stipules
+    at each node; white flowers 1-2 per axil from about node 10; green pods 5-10 cm. Plant age 0 is emergence.
+
+sources: {}
+
+leaf_textures:
+  pea_leaflet:
+    source: judged
+    note: "ovate-elliptic, entire, glaucous blue-green"
+    length_px: 512
+    aspect: 0.6
+    widest_at: 0.42
+    base: 0.8
+    tip: 0.75
+    color: [0.30, 0.46, 0.30]
+    midrib_color: [0.45, 0.60, 0.42]
+    veins: 4
+    vein_angle: 40.0
+    margin_shade: 0.10
+  pea_tendril:
+    source: judged
+    note: "a tendril: a thin strip in the leaflet's frame (same aspect so that it maps onto the same blade)"
+    length_px: 512
+    aspect: 0.6
+    profile: [[0.0, 0.05], [0.9, 0.04], [1.0, 0.0]]
+    color: [0.40, 0.55, 0.30]
+    midrib_width: 0.0
+    veins: 0
+    margin_shade: 0.0
+  pea_stipule:
+    source: judged
+    note: "large semi-cordate leafy stipule, toothed towards the base, glaucous and often mottled"
+    length_px: 512
+    aspect: 0.6
+    widest_at: 0.35
+    base: 0.5
+    tip: 0.9
+    asymmetry: 0.25
+    serration: {count: 7, depth: 0.08}
+    color: [0.33, 0.48, 0.33]
+    midrib_color: [0.42, 0.56, 0.40]
+    veins: 3
+    vein_angle: 35.0
+    margin_shade: 0.10
+
+shoot_types:
+  unifoliate:
+    # the base node with its two scale leaves
+    leaf:
+      prototype_scale: {value: 0.012, source: judged, note: scale leaves about 1 cm}
+    leaf_prototype:
+      leaf_texture_file: {texture: pea_stipule, source: judged}
+      leaf_aspect_ratio: {value: 0.6, source: judged}
+      build_petiolule: {value: false, source: judged}
+    internode:
+      color: {value: [0.36, 0.48, 0.30], source: judged}
+  trifoliate:
+    # the main stem (label kept for the soybean builder)
+    child_shoot_types: {value: {branch: 1.0}, source: judged}
+    shoot:
+      max_nodes: {uniform: [18, 23], source: judged, note: "nodes above the base node"}
+      phyllochron_min: {value: 3.4, source: judged, note: "a node every 3-4 days"}
+      internode_length_max: {normal: [0.036, 0.005], source: judged}
+      elongation_rate_max: {value: 0.12, source: judged}
+      insertion_angle_tip: {uniform: [15.0, 30.0], source: judged}
+      gravitropic_curvature: {value: 250.0, source: judged, note: "a weak stem: it stays roughly upright without support but leans"}
+      tortuosity: {value: 8.0, source: judged}
+      girth_area_factor: {value: 1.2, source: judged, note: thin hollow stem 3-6 mm}
+      vegetative_bud_break_probability_min: {value: 0.6, source: judged, note: "the basal axils (only those are left alive below)"}
+      vegetative_bud_break_probability_decay_rate: {value: 0.0, source: judged}
+      vegetative_bud_break_time: {value: 12.0, source: judged}
+      flower_bud_break_probability: {value: 0.75, source: judged}
+      fruit_set_probability: {value: 0.55, source: judged, note: "most flowers set a pod; the upper ones abort"}
+      determinate_shoot_growth: {value: false, source: judged}
+    internode:
+      phyllotactic_angle: {normal: [180.0, 8.0], source: judged, note: distichous}
+      radius_initial: {value: 0.0016, source: judged}
+      pitch: {value: 8.0, source: judged, note: slightly zig-zag}
+      color: {value: [0.36, 0.50, 0.32], source: judged, note: glaucous}
+    petiole:
+      length: {normal: [0.10, 0.015], source: judged, note: "petiole + rachis to the tendrils"}
+      radius: {value: 0.0011, source: judged}
+      pitch: {uniform: [45.0, 70.0], source: judged, note: leaves spread nearly horizontally}
+      curvature: {uniform: [-150.0, 0.0], source: judged}
+      taper: {value: 0.4, source: judged}
+      color: {value: [0.38, 0.52, 0.33], source: judged}
+    leaf:
+      leaves_per_petiole: {value: 9, source: judged, note: "tendril, pair of tendrils, two pairs of leaflets, stipules (see top)"}
+      leaflet_offset: {value: 0.2857, source: judged, note: "the stipule pair lands at the node (Helios clamps to 1 / 3.5)"}
+      leaflet_scale: {value: 1.0, source: judged}
+      prototype_scale: {normal: [0.048, 0.005], source: judged, note: "leaflets and stipules 3-7 cm (m)"}
+      pitch: {uniform: [-15.0, 15.0], source: judged}
+      yaw: {value: 5.0, source: judged}
+      roll: {uniform: [-15.0, 5.0], source: judged}
+    leaf_prototype:
+      leaf_texture_file:
+        texture: {0: pea_tendril, -1: pea_tendril, 1: pea_tendril, -2: pea_leaflet, 2: pea_leaflet,
+                  -3: pea_leaflet, 3: pea_leaflet, -4: pea_stipule, 4: pea_stipule}
+        source: judged
+      leaf_aspect_ratio: {value: 0.6, source: judged, note: the textures' width / length}
+      build_petiolule: {value: false, source: judged}
+      midrib_fold_fraction: {uniform: [0.0, 0.2], source: judged}
+      longitudinal_curvature: {uniform: [-0.2, 0.0], source: judged}
+      lateral_curvature: {value: -0.1, source: judged}
+      subdivisions: {value: 4, source: judged}
+      unique_prototypes: {value: 3, source: judged}
+    peduncle:
+      length: {normal: [0.06, 0.015], source: judged, note: "the axillary raceme stalk, about as long as the leaf"}
+      radius: {value: 0.0008, source: judged}
+      pitch: {uniform: [20.0, 40.0], source: judged}
+      curvature: {uniform: [-300.0, 0.0], source: judged}
+      color: {value: [0.38, 0.52, 0.33], source: judged}
+    inflorescence:
+      flowers_per_peduncle: {uniform: [1, 2], source: judged, note: flowers 1-2 per axil}
+      flower_offset: {value: 0.15, source: judged}
+      flower_prototype_scale: {value: 0.025, source: judged, note: flower about 2-3 cm}
+      fruit_prototype_scale: {normal: [0.072, 0.008], source: judged, note: "pod length 5-10 cm (m)"}
+      fruit_gravity_factor_fraction: {uniform: [0.6, 0.9], source: judged, note: pods hang}
+    flower: {obj_variants: "assets/obj/BeanFlower_{state}_white.obj", count: 1, source: judged, note: "the Helios bean white papilionaceous flower"}
+    fruit: {obj: BeanPod.obj, height: 0, source: judged, note: "the Helios bean pod asset, scaled to a pea pod"}
+    phytomer_creation:
+      - {rule: kill_buds, which: floral, node_below: 10, rank: 0, source: judged, note: "first flower at about node 10-11 counting the base node (field peas: node 9-15)"}
+      - {rule: kill_buds, which: vegetative, node_from: 3, rank: 0, source: judged, note: branches only from the basal nodes}
+      - {rule: kill_buds, which: vegetative, rank_above: 0, source: judged, note: no second-order branches}
+      - {rule: leaf_scale_ramp, intercept: 0.4, slope: 0.6, days: 20.0, source: judged, note: the first leaves are small}
+      - {rule: internode_scale_ramp, intercept: 0.3, slope: 0.7, days: 20.0, source: judged}
+  branch:
+    # basal branches: a copy of the soybean branch, given the pea's organs
+    from: trifoliate
+    child_shoot_types: {value: {branch: 1.0}, source: judged}
+    shoot:
+      max_nodes: {uniform: [6, 12], source: judged, note: basal branches are shorter than the main stem}
+      insertion_angle_tip: {uniform: [10.0, 25.0], source: judged}
+      vegetative_bud_break_probability_min: {value: 0.0, source: judged}
+    phytomer_creation:
+      - {rule: kill_buds, which: floral, node_below: 5, source: judged, note: branches flower a few nodes above their base}
+      - {rule: kill_buds, which: vegetative, source: judged}
+      - {rule: leaf_scale_ramp, intercept: 0.4, slope: 0.6, days: 20.0, source: judged}
+
+build:
+  builder: template
+  phenology:
+    flower_initiation: {value: 12, source: judged, note: "axillary bud made to visible flower bud"}
+    flower_opening: {value: 5, source: judged}
+    fruit_set: {value: 6, source: judged, note: open flower to a visible pod}
+    fruit_maturity: {value: 30, source: judged, note: "pod set to full-length green pod / physiological maturity"}
+  max_age: {value: 110, source: judged}
+
+traits:
+  - {trait: plant_height, age: 30, range: [0.12, 0.40], source: judged}
+  - {trait: plant_height, age: 75, range: [0.50, 1.00], source: judged, note: common field types 0.5-1 m}
+  - {trait: leaf_length_max, age: 50, range: [0.03, 0.08], source: judged, note: "leaflets 2-6 cm; stipules up to 8 cm"}
+  - {trait: shoot_count, age: 60, range: [2, 5], source: judged, note: "the base node and the main stem + 0-3 basal branches"}
+  - {trait: first_flower_day, age: 70, range: [38, 60], source: judged, note: "first flower bud 6-8 weeks after emergence", seeds: 4}
+  - {trait: first_fruit_day, age: 80, range: [48, 70], source: judged, note: first pod, seeds: 4}
+  - {trait: fruit_count, age: 85, range: [4, 20], source: judged, note: pods per single plant}
+  - {trait: fruit_length_max, age: 85, range: [0.05, 0.10], source: judged, note: pods 5-10 cm}

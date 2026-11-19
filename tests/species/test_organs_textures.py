@@ -112,3 +112,38 @@ def test_texture_tool(tmp_path):
     prof = {"aspect": 0.3, "profile": [[0, 0], [0.3, 1], [1, 0]]}
     t = np.array([0.0, 0.15, 0.3, 0.65, 1.0])
     assert np.allclose(LT.profile(LT.validate_outline(prof), t), [0, 0.5, 1, 0.5, 0])
+
+
+# ---- S1: capitulum organ, cordate sinus --------------------------------------------------------------
+
+def test_capitulum_flower_and_fruit():
+    """``{capitulum: ...}``: the disc is 1 across facing +x, rays extend beyond it, the closed flower is a smaller bud,
+    and the same description serves as a fruit; no draws."""
+    desc = {"capitulum": {"rays": 20, "ray_length": 0.4, "bracts": 16, "thickness": 0.15, "bud_fraction": 0.4,
+                          "disc_color": [0.3, 0.2, 0.1], "ray_color": [1, 0.8, 0]}}
+    f = O.organ_hook("t", "flower", O.validate_organ(desc, "flower", "f"))
+    sc = _scene()
+    V_open = _obj_vertices(sc, f(sc, 1, True))
+    V_bud = _obj_vertices(sc, f(sc, 1, False))
+    span_open = 2 * np.hypot(V_open[:, 1], V_open[:, 2]).max()
+    assert span_open == pytest.approx(0.95 + 2 * 0.4, abs=0.02)        # rays from 0.95 of the rim radius, 0.4 long
+    assert V_open[:, 0].min() == pytest.approx(0) and V_open[:, 0].max() < 0.3
+    assert 2 * np.hypot(V_bud[:, 1], V_bud[:, 2]).max() < 0.45            # bud_fraction 0.4
+    fr = O.organ_hook("t", "fruit", O.validate_organ({"capitulum": {"rays": 0}}, "fruit", "f"))
+    V = _obj_vertices(sc, fr(sc, 1))
+    assert 2 * np.hypot(V[:, 1], V[:, 2]).max() == pytest.approx(1.0, abs=1e-6)   # the disc diameter
+    assert sc.randu() == _scene().randu()
+    with pytest.raises(O.OrganSpecError, match="unknown key"):
+        O.validate_organ({"capitulum": {"petals": 3}}, "flower", "f")
+
+
+def test_sinus_cuts_a_cordate_base_and_keeps_the_midrib():
+    d = {"aspect": 0.8, "length_px": 200, "widest_at": 0.3, "base": 0.3, "midrib_width": 0.02}
+    plain = LT.render(d)[..., 3] > 0
+    cut = LT.render(dict(d, sinus={"depth": 0.1, "width": 0.4}))[..., 3] > 0
+    H = plain.shape[0]
+    assert plain[H // 2, 5] and cut[H // 2, 5]                 # the midrib crosses the sinus
+    assert plain[H // 2 + 8, 5] and not cut[H // 2 + 8, 5]     # beside it, the notch
+    assert np.array_equal(plain[:, 30:], cut[:, 30:])          # beyond depth 0.1 nothing changes
+    with pytest.raises(LT.LeafOutlineError, match="depth"):
+        LT.validate_outline(dict(d, sinus={"width": 0.3}))

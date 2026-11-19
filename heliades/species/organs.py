@@ -106,7 +106,7 @@ def validate_organ(spec, organ: str, where: str):
         return ("none",)
     if not isinstance(spec, dict):
         raise OrganSpecError(f"{where}: expected template, none or a mapping")
-    forms = {"library", "obj", "obj_variants", "ellipsoid", "corolla"}
+    forms = {"library", "obj", "obj_variants", "ellipsoid", "corolla"} | set(EXTRA_FORMS)
     keys = set(spec) - {"source", "note", "height", "count"}
     form = keys & forms
     if len(form) != 1 or keys - forms:
@@ -136,6 +136,11 @@ def validate_organ(spec, organ: str, where: str):
         if organ != "fruit":
             raise OrganSpecError(f"{where}: ellipsoid is a fruit shape")
         return ("ellipsoid", _block(spec["ellipsoid"], FRUIT_ELLIPSOID_KEYS, where + ".ellipsoid"))
+    if form in EXTRA_FORMS:
+        organs_ok, keys, _ = EXTRA_FORMS[form]
+        if organ not in organs_ok:
+            raise OrganSpecError(f"{where}: {form} is a {' / '.join(organs_ok)} shape")
+        return (form, _block(spec[form], keys, where + "." + form))
     if organ != "flower":
         raise OrganSpecError(f"{where}: corolla is a flower shape")
     return ("corolla", _block(spec["corolla"], COROLLA_KEYS, where + ".corolla"))
@@ -280,6 +285,12 @@ def organ_hook(species: str, organ: str, norm):
             def flower(ctx, subdivisions, is_open, build_parameters=None):
                 return _load_obj(ctx, paths["open" if is_open else "closed"][int(ctx.randu(0, n - 1))], 0.0)
             h.implement(flower)
+    elif form in EXTRA_FORMS:
+        V, T, C = EXTRA_FORMS[form][2](params)
+        if organ == "fruit":
+            h.implement(lambda ctx, subdivisions, build_parameters=None: _mesh(ctx, V, T, C))
+        else:
+            h.implement(lambda ctx, subdivisions, is_open, build_parameters=None: _mesh(ctx, V, T, C))
     elif form == "ellipsoid":
         V, T, C = ellipsoid_mesh(params)
         h.implement(lambda ctx, subdivisions, build_parameters=None: _mesh(ctx, V, T, C))
@@ -288,3 +299,150 @@ def organ_hook(species: str, organ: str, norm):
         h.implement(lambda ctx, subdivisions, is_open, build_parameters=None: _mesh(ctx, *meshes[bool(is_open)]))
     _HOOKS[key] = h
     return h
+
+
+# ---- extra procedural organ shapes ----------------------------------------------------------------------------
+# A shape registered here is a form of its own: ``EXTRA_FORMS[name] = (organs, keys, mesh_fn)`` with ``organs`` the
+# organs it may be used for ("fruit", "flower"), ``keys`` a ``_block`` schema and ``mesh_fn(params)`` returning
+# (vertices, triangles, per-triangle colours) of the unit organ (base at the origin, along +x). Procedural, no
+# Context draw.
+
+EXTRA_FORMS: dict = {}
+
+
+# ---- panicle (S1, oat) ----------------------------------------------------------------------------------------
+
+PANICLE_KEYS = {
+    "whorls": (int, 5, 1, 12),                     # rachis nodes bearing branches
+    "whorl_top": (float, 0.8, 0.1, 1.0),           # position of the highest whorl, fraction of the length
+    "branches_base": (int, 4, 1, 12),              # branches at the basal whorl ...
+    "branches_tip": (int, 1, 1, 12),               # ... and at the highest (linear, rounded)
+    "branch_length": (float, 0.45, 0.02, 1.5),     # basal branch, fraction of the panicle length
+    "branch_length_tip": (float, 0.12, 0.01, 1.5),
+    "branch_angle": (float, 45.0, 0.0, 120.0),     # basal branch angle from the rachis (degrees)
+    "branch_angle_tip": (float, 25.0, 0.0, 120.0),
+    "droop": (float, 40.0, 0.0, 150.0),            # extra bend of every branch from its base to its tip (degrees)
+    "spikelets_per_branch": (int, 5, 1, 40),       # on a basal branch; shorter branches carry proportionally fewer
+    "spikelet_zone": (float, 0.6, 0.05, 1.0),      # distal fraction of a branch that bears spikelets
+    "spikelet_length": (float, 0.1, 0.005, 0.5),   # fraction of the panicle length
+    "spikelet_width": (float, 0.35, 0.05, 1.0),    # fraction of the spikelet length
+    "spikelet_hang": (float, 160.0, 0.0, 180.0),   # angle of a spikelet from the rachis direction (180 = straight down)
+    "pedicel_length": (float, 0.04, 0.0, 0.5),     # fraction of the panicle length
+    "rachis_radius": (float, 0.006, 0.0005, 0.05),
+    "branch_radius": (float, 0.0025, 0.0002, 0.05),
+    "rachis_bend": (float, 15.0, 0.0, 120.0),      # nod of the rachis tip (degrees, total)
+    "color": (list, None, None, None),             # spikelets (glumes)
+    "rachis_color": (list, None, None, None),      # rachis, branches and pedicels
+    "jitter": (float, 0.15, 0.0, 1.0),             # relative random variation of angles and lengths
+    "seed": (int, 1, 0, 1_000_000),                # of the local generator (numpy, not the Context stream)
+}
+
+
+def _tube(verts, tris, cols, pts, radius, color, sides=3):
+    """A polyline as a prism of ``sides`` faces per segment (open ends)."""
+    pts = [np.asarray(p, float) for p in pts]
+    rings = []
+    for i, p in enumerate(pts):
+        d = pts[min(i + 1, len(pts) - 1)] - pts[max(i - 1, 0)]
+        d = d / (np.linalg.norm(d) or 1.0)
+        a = np.array([0.0, 0.0, 1.0]) if abs(d[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        u = np.cross(d, a)
+        u /= np.linalg.norm(u)
+        w = np.cross(d, u)
+        b = len(verts)
+        for k in range(sides):
+            t = 2 * math.pi * k / sides
+            verts.append(p + radius * (math.cos(t) * u + math.sin(t) * w))
+        rings.append(b)
+    for i in range(len(rings) - 1):
+        a0, a1 = rings[i], rings[i + 1]
+        for k in range(sides):
+            k1 = (k + 1) % sides
+            tris += [(a0 + k, a0 + k1, a1 + k1), (a0 + k, a1 + k1, a1 + k)]
+            cols += [color, color]
+
+
+def _spikelet(verts, tris, cols, base, axis, side, length, width, color):
+    """Two crossed lanceolate glume planes (a diamond each, widest at 0.35 of the length)."""
+    axis = axis / np.linalg.norm(axis)
+    side = side - axis * np.dot(side, axis)
+    side /= np.linalg.norm(side)
+    other = np.cross(axis, side)
+    for s in (side, other):
+        b = len(verts)
+        mid = base + axis * (0.35 * length)
+        verts += [base, mid + s * (0.5 * width), base + axis * length, mid - s * (0.5 * width)]
+        tris += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
+        cols += [color, color]
+
+
+def panicle_mesh(p):
+    """Open grass panicle along +x: a rachis (nodding by ``rachis_bend``) with ``whorls`` whorls of spreading branches
+    that droop towards their tips, pendant spikelets on pedicels along the distal part of each branch, and a terminal
+    spikelet. Lengths are fractions of the panicle length (the organ is 1 long)."""
+    rng = np.random.default_rng(p["seed"])
+    J = p["jitter"]
+
+    def jit(x):
+        return x * (1 + J * (rng.random() * 2 - 1))
+
+    verts, tris, cols = [], [], []
+    rc, sc = p["color"], p["rachis_color"]
+    ex, ez = np.array([1.0, 0, 0]), np.array([0, 0, 1.0])
+    nseg = 8
+    bend = math.radians(p["rachis_bend"])
+
+    def rachis_point(t):                              # arc of total turn ``bend`` in the x-z plane
+        if bend < 1e-6:
+            return ex * t, ex
+        R = 1.0 / bend
+        a = bend * t
+        return np.array([R * math.sin(a), 0.0, R * (1 - math.cos(a))]), np.array([math.cos(a), 0.0, math.sin(a)])
+
+    _tube(verts, tris, cols, [rachis_point(i / nseg)[0] for i in range(nseg + 1)], p["rachis_radius"], sc, 4)
+    L_s, W_s = p["spikelet_length"], p["spikelet_width"] * p["spikelet_length"]
+    hang = math.radians(p["spikelet_hang"])
+    n = p["whorls"]
+    az0 = 0.0
+    for w in range(n):
+        f = w / (n - 1) if n > 1 else 0.0
+        t = p["whorl_top"] * f
+        P, T = rachis_point(t)
+        nb = int(round(p["branches_base"] + (p["branches_tip"] - p["branches_base"]) * f))
+        blen = p["branch_length"] + (p["branch_length_tip"] - p["branch_length"]) * f
+        bang = math.radians(p["branch_angle"] + (p["branch_angle_tip"] - p["branch_angle"]) * f)
+        az0 += 2.399963                                # golden angle between whorls
+        N1 = np.cross(T, ez if abs(T[2]) < 0.9 else ex)
+        N1 /= np.linalg.norm(N1)
+        N2 = np.cross(T, N1)
+        for b in range(nb):
+            az = az0 + 2 * math.pi * b / nb + J * (rng.random() - 0.5)
+            radial = math.cos(az) * N1 + math.sin(az) * N2
+            L = jit(blen)
+            a0 = jit(bang)
+            droop = math.radians(jit(p["droop"]))
+            pts, q = [P], P.copy()
+            for k in range(6):
+                th = a0 + droop * (k + 0.5) / 6
+                q = q + (L / 6) * (math.cos(th) * T + math.sin(th) * radial)
+                pts.append(q)
+            _tube(verts, tris, cols, pts, p["branch_radius"], sc)
+            ns = max(1, int(round(p["spikelets_per_branch"] * L / max(p["branch_length"], 1e-9))))
+            for s in range(ns):
+                u = 1 - p["spikelet_zone"] * (s / ns)     # from the branch tip inwards
+                idx = u * 6
+                k = min(5, int(idx))
+                at = pts[k] + (pts[k + 1] - pts[k]) * (idx - k)
+                h = jit(hang) if hang < math.pi else hang
+                sdir = math.cos(h) * T + math.sin(h) * radial
+                side = np.cross(sdir, T) if abs(np.dot(sdir, T)) < 0.99 else N1
+                ped_end = at + sdir * p["pedicel_length"]
+                if p["pedicel_length"] > 0:
+                    _tube(verts, tris, cols, [at, ped_end], 0.6 * p["branch_radius"], sc)
+                _spikelet(verts, tris, cols, ped_end, sdir, side, jit(L_s), W_s, rc)
+    P, T = rachis_point(1.0)
+    _spikelet(verts, tris, cols, P, T, N1 if n else np.array([0, 1.0, 0]), L_s, W_s, rc)
+    return np.asarray(verts, f32), tris, cols
+
+
+EXTRA_FORMS["panicle"] = (("fruit",), PANICLE_KEYS, panicle_mesh)

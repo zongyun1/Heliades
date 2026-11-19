@@ -157,6 +157,7 @@ inflorescence scales it by `flower_prototype_scale` / `fruit_prototype_scale`, s
 | `{obj_variants: "assets/obj/Cucumber/fruit_{index:02d}.obj", count: 6}` | one of n OBJs, `randu(0, n-1)`; flowers need `{state}` (open / closed) |
 | `{ellipsoid: {diameter, bulge, color, calyx_color, calyx_fraction, rings, segments}}` | procedural fruit (diameter relative to the length; `bulge` > 0 widens towards the tip) |
 | `{corolla: {petals, petal_width, cup, color, center_color, center_diameter, center_length, bud_length}}` | procedural flower; closed = petals folded into a bud |
+| `{panicle: {whorls, whorl_top, branches_base, branches_tip, branch_length, branch_length_tip, branch_angle, branch_angle_tip, droop, spikelets_per_branch, spikelet_zone, spikelet_length, spikelet_width, spikelet_hang, pedicel_length, rachis_radius, branch_radius, rachis_bend, color, rachis_color, jitter, seed}}` | procedural open grass panicle (fruit; S1, oat): a nodding rachis with whorls of drooping branches and pendant spikelets on pedicels; lengths are fractions of the panicle length, `seed` drives a local numpy generator (no Context draw); see `PANICLE_KEYS` in `organs.py` |
 
 Each takes `source:` / `note:`. Procedural organs draw nothing from the Context stream.
 
@@ -240,12 +241,14 @@ Traits: `plant_height` (m), `leaf_count`, `leaf_area` (m^2), `main_stem_nodes`, 
 m), `leaf_length_max` (longest blade / leaflet, m), `fruit_count`, `flower_count`, `fruit_length_max` (m),
 `shoot_count`, and the timing traits `first_flower_day` / `first_fruit_day` (`age` is the horizon; the plant grows
 in one-day steps). `python -m heliades.species.traits <species>` prints measured (mean over seeds 1..n, fast mode)
-against expected; `tests/species/test_traits.py` asserts every mean is in range.
+against expected; `tests/species/test_traits.py` asserts every mean is in range. `slow: true` marks a trait whose
+check is expensive (old, large plants): its test is `pytest.mark.slow` (run with `--runslow`); the traits command
+always measures it.
 
 ## What the format cannot express yet
 
 * New growth logic beyond the rule registry (a rule is Python in `heliades/species/rules.py`, reviewed and tested).
 * Shoot-type-specific build logic of the template builders other than through `builder: template`.
 * Leaf texture series (age-staged textures), compound-leaf texture maps per leaflet, class maps for generated leaves.
-* Organ shapes other than OBJ assets, ellipsoids and corollas (no pods, spikes with awns, panicles).
+* Organ shapes other than OBJ assets, ellipsoids, corollas and open panicles (no pods, spikes with awns).
 * Temperature-driven phenology: all thresholds are in degree-days at the model's one per day.

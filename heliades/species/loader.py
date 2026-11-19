@@ -50,7 +50,7 @@ BASE_STEM_KEYS = ("shoot_type", "nodes", "internode_radius", "internode_length_m
                   "internode_length_scale_factor_fraction", "leaf_scale_factor_fraction", "radius_taper")
 PHENOLOGY_KEYS = ("dormancy_break", "flower_initiation", "flower_opening", "fruit_set", "fruit_maturity", "dormancy",
                   "max_leaf_lifespan", "evergreen")
-TRAIT_KEYS = ("trait", "age", "range", "source", "note", "seeds")
+TRAIT_KEYS = ("trait", "age", "range", "source", "note", "seeds", "slow")
 
 
 class SpeciesError(ValueError):
@@ -589,8 +589,11 @@ def parse_spec(raw: dict, path: str = "<memory>") -> SpeciesSpec:
         seeds = t.get("seeds", 8)
         if not isinstance(seeds, int) or seeds < 1:
             ctx.error(f"{w}.seeds: expected a whole number >= 1")
+        slow = t.get("slow", False)
+        if not isinstance(slow, bool):
+            ctx.error(f"{w}.slow: expected true or false")
         traits.append({"trait": t["trait"], "age": float(t["age"]), "range": (float(rg[0]), float(rg[1])),
-                       "source": t["source"], "note": t.get("note", ""), "seeds": seeds})
+                       "source": t["source"], "note": t.get("note", ""), "seeds": seeds, "slow": slow})
 
     return SpeciesSpec(name, path, template, dict(md), dict(sources), textures, shoot_types, list(drop), build,
                        traits, raw)

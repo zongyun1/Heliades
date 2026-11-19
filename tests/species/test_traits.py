@@ -7,7 +7,8 @@ import pytest
 from heliades.species import available_species, load_spec
 from heliades.species.traits import TRAITS, measure
 
-CASES = [(n, i) for n in available_species() for i in range(len(load_spec(n).traits))]
+CASES = [pytest.param(n, i, marks=[pytest.mark.slow] if t.get("slow") else [])
+         for n in available_species() for i, t in enumerate(load_spec(n).traits)]
 
 
 @pytest.mark.parametrize("name,index", CASES)

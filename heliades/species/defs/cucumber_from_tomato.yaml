@@ -1,0 +1,129 @@
+# Helios's long greenhouse cucumber, rebuilt from the tomato template.
+#
+# Helios 1.3.98's initializeCucumberShoots (PlantLibrary.cpp:6689) says it was "ported by Heliades from a species
+# definition built on the tomato model; every value the species set is marked with what it cites, and the rest are the
+# template's". This file is that definition in the Heliades species format: every value it sets is one the cucumber
+# sets differently from the tomato, with the source Helios gives it ("judged" where Helios says "set by the species,
+# judged"; the Helios source keys otherwise; "helios_cucumber" for the values Helios takes over unmarked, which belong
+# to the cucumber's leaf image and OBJ assets). It builds bit-identically to the library cucumber (parity suite
+# plantarch.species.cucumber_from_tomato.*), which is what shows the format can express a Helios species.
+format: heliades-species/1
+name: cucumber_from_tomato
+template: tomato
+
+metadata:
+  latin_name: Cucumis sativus
+  common_name: cucumber
+  cultivar: long greenhouse cucumber, high-wire training
+  description: >-
+    One unbranched indeterminate main stem trained up a string to a wire at 3.8 m, lowered and leaned once its head
+    reaches the wire; one female flower per axil; fruit harvested at full size.
+
+sources:
+  helios_cucumber:
+    citation: "Helios 1.3.98, plugins/plantarchitecture/src/PlantLibrary.cpp:6689-6824 (initializeCucumberShoots, buildCucumberPlant) and src/Assets.cpp:4262-4458, Copyright (C) 2016-2026 Brian Bailey, LGPL-2.1"
+    note: values Helios sets without a citation mark that are tied to its cucumber assets (leaf image, OBJ fruit and flowers)
+  kahlen_chen_2015:
+    citation: "Kahlen and Chen (2015), cucumber internode length and phyllochron, as cited by Helios 1.3.98 PlantLibrary.cpp:6774,6779 (key cucumis-sativus-kahlen-chen-2015-internodes@proposed)"
+  saba_2026:
+    citation: "Saba et al. (2026), cucumber leaf growth, as cited by Helios 1.3.98 PlantLibrary.cpp:6743 (key cucumis-sativus-saba-2026-growth@proposed)"
+  english_fruit_grades_2025:
+    citation: "English cucumber fruit grades (2025), as cited by Helios 1.3.98 PlantLibrary.cpp:6726 (key cucumis-sativus-plants-2025-english-fruit-grades@proposed)"
+
+drop_shoot_types: [mainstem]
+
+shoot_types:
+  main:
+    from: mainstem
+    child_shoot_types: {value: {}, source: judged, note: unbranched (side shoots are removed in high-wire cucumber)}
+    shoot:
+      max_nodes: {value: 125, source: judged, note: "ends the crop at about 165 days: high-wire crops are replanted about twice a year, with 12-16 weeks of harvest"}
+      determinate_shoot_growth: {value: false, source: judged}
+      elongation_rate_max: {value: 0.2, source: judged}
+      flower_bud_break_probability: {value: 0.6, source: judged}
+      fruit_set_probability: {value: 0.7, source: judged}
+      girth_area_factor: {value: 0.8, source: judged}
+      gravitropic_curvature: {value: 0.0, source: judged}
+      internode_length_max: {normal: [0.1, 0.009], source: kahlen_chen_2015}
+      phyllochron_min: {normal: [1.43, 0.1], source: kahlen_chen_2015}
+      tortuosity: {value: 5.0, source: judged}
+      vegetative_bud_break_probability_max: {value: 0.0, source: judged}
+      vegetative_bud_break_probability_min: {value: 0.0, source: judged}
+    internode:
+      color: {value: [0.3, 0.45, 0.16], source: judged}
+      max_vegetative_buds_per_petiole: {value: 0, source: judged}
+      phyllotactic_angle: {normal: [144.0, 12.0], source: judged}
+      pitch: {value: 0.0, source: judged}
+      radius_initial: {value: 0.003, source: judged}
+    petiole:
+      color: {value: [0.32, 0.5, 0.18], source: judged}
+      curvature: {uniform: [-120.0, -40.0], source: judged}
+      length: {normal: [0.19, 0.025], source: judged}
+      pitch: {normal: [50.0, 10.0], source: judged}
+      radius: {value: 0.0035, source: judged}
+      taper: {value: 0.4, source: judged}
+    leaf:
+      leaflet_offset: {value: 0.0, source: judged}
+      leaflet_scale: {value: 1.0, source: judged}
+      leaves_per_petiole: {value: 1, source: judged}
+      pitch: {normal: [-35.0, 12.0], source: judged}
+      prototype_scale: {normal: [0.264, 0.019], source: saba_2026}
+      roll: {normal: [0.0, 8.0], source: judged}
+      yaw: {normal: [0.0, 8.0], source: judged}
+    peduncle:
+      color: {value: [0.3, 0.45, 0.16], source: judged}
+      curvature: {value: -300.0, source: judged}
+      length: {normal: [0.035, 0.008], source: judged}
+      pitch: {value: 60.0, source: judged}
+      radius: {value: 0.003, source: judged}
+    inflorescence:
+      flower_offset: {value: 0.0, source: judged}
+      flower_prototype_scale: {normal: [0.11, 0.01], source: judged}
+      flowers_per_peduncle: {value: 1, source: judged}
+      fruit_gravity_factor_fraction: {value: 0.8, source: judged}
+      fruit_prototype_scale: {normal: [0.3, 0.015], source: english_fruit_grades_2025}
+      pitch: {value: 20.0, source: judged}
+      unique_prototypes: {value: 6, source: judged}
+    leaf_prototype:
+      build_petiolule: {value: false, source: judged}
+      lateral_curvature: {uniform: [-0.15, 0.05], source: judged}
+      leaf_aspect_ratio: {value: 0.8917609, source: helios_cucumber, note: width / length of CucumberLeaf_0.png's blade}
+      leaf_offset: {value: [-0.2771165, 0.0, 0.0], source: helios_cucumber, note: the petiole attaches inside the cordate base}
+      leaf_texture_file: {value: CucumberLeaf_0.png, source: helios_cucumber}
+      longitudinal_curvature: {uniform: [-0.25, 0.0], source: judged}
+      midrib_fold_fraction: {uniform: [0.0, 0.15], source: judged}
+      subdivisions: {value: 10, source: judged}
+      unique_prototypes: {value: 10, source: judged}
+      wave_amplitude: {uniform: [0.0, 0.04], source: judged}
+      wave_period: {value: 0.3, source: judged}
+    flower: {library: CucumberFlowerPrototype, source: helios_cucumber, note: "six baked OBJ variants, open and closed"}
+    fruit: {library: CucumberFruitPrototype, source: helios_cucumber, note: six baked OBJ variants}
+    phytomer_creation:
+      # the tomato's TomatoPhytomerCreationFunction, rule by rule, then the cucumber's blade relief
+      - {rule: kill_buds, which: floral, node_below: 8, rank: 0, source: judged, note: the tomato's (template)}
+      - {rule: kill_buds, which: both, rank_above: 1, source: judged, note: the tomato's (template)}
+      - {rule: leaf_scale_ramp, intercept: 0.5, slope: 0.5, days: 10.0, source: judged, note: the tomato's (template)}
+      - {rule: internode_scale_ramp, intercept: 0.7, slope: 0.3, days: 10.0, source: judged, note: the tomato's (template)}
+      - {rule: leaf_bump_map, texture: assets/textures/CucumberLeaf_0_bump.png, strength: 12.58861, source: helios_cucumber}
+    phytomer_callback:
+      - {rule: harvest_ripe_fruit, source: helios_cucumber, note: "fruit are picked once they reach full size, about 10-14 days after the flower opens"}
+      - {rule: high_wire_lowering, source: helios_cucumber}
+
+build:
+  builder: generic
+  source: helios_cucumber
+  base_rotation: {pitch: 0, yaw: {randu: [0, 2pi]}, roll: 0}
+  base_stem: {shoot_type: main, nodes: 2, internode_radius: 0.003, internode_length_max: 0.1,
+              internode_length_scale_factor_fraction: 0.1, leaf_scale_factor_fraction: 0.1, radius_taper: 0.0}
+  phenology:
+    dormancy_break: {value: 0, source: helios_cucumber}
+    flower_initiation: {value: 12, source: helios_cucumber}
+    flower_opening: {value: 6, source: helios_cucumber}
+    fruit_set: {value: 2, source: helios_cucumber}
+    fruit_maturity: {value: 14, source: helios_cucumber}
+    dormancy: {value: 1000, source: helios_cucumber}
+    max_leaf_lifespan: {value: 45, source: helios_cucumber}
+    evergreen: {value: false, source: helios_cucumber}
+  max_age: {value: 165, source: helios_cucumber, note: the crop ends when the stem has its last node}
+  rules:
+    - {rule: high_wire_string, view_half_angle_deg: 80.0, look_ahead_distance: 0.15, attraction_weight: 0.8, source: helios_cucumber}

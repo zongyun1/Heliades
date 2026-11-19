@@ -4,7 +4,8 @@ version = "0.0.1"
 description = "Simulation-first, GPU-native plant modeling platform (port of Helios) + PlantTwin deformable sim"
 license = "LGPL-2.1-or-later"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.24", "scipy>=1.10", "matplotlib>=3.7", "warp-lang>=1.9", "usd-core>=24.0"]
+dependencies = ["numpy>=1.24", "scipy>=1.10", "matplotlib>=3.7", "warp-lang>=1.9", "usd-core>=24.0", "pyyaml>=6.0",
+                "pillow>=9.0"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
@@ -14,6 +15,10 @@ dev = ["pytest"]
 # heliades/ is the platform; legacy/planttwin is the original prototype, kept importable as `planttwin`
 where = [".", "legacy"]
 include = ["heliades*", "planttwin*"]
+
+[tool.setuptools.package-data]
+# species files and their generated assets (heliades/species)
+heliades = ["species/defs/*.yaml", "species/assets/*/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

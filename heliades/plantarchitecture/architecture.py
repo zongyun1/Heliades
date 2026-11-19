@@ -112,6 +112,10 @@ class PlantArchitecture(PlantArchitectureAPI):
     @ports("PlantArchitecture::loadPlantModelFromLibrary")
     def loadPlantModelFromLibrary(self, plant_label: str):
         # skipStructuralOperationInCallback: phytomer callbacks are not ported yet, so never inside one.
+        if plant_label not in self.shoot_initializers:
+            # Heliades: a species file (heliades/species/defs/<name>.yaml) is registered on first use
+            from ..species import register_if_species
+            register_if_species(self, plant_label)
         self.current_plant_model = plant_label
         self.initializeDefaultShoots(plant_label)
 

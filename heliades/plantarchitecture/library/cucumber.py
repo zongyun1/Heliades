@@ -306,11 +306,21 @@ def CucumberStringAttractionPoints(string_base):
 @ports("CucumberMainPhytomerCallbackFunction")
 def _cucumber_main_phytomer_callback(phytomer):
     """AS:4369-4458: harvest full-size fruit; lower and lean the main stem from its tip phytomer."""
+    cucumberHarvestFullSizeFruit(phytomer)
+    cucumberLowerAndLeanStem(phytomer)
+
+
+def cucumberHarvestFullSizeFruit(phytomer):
+    """AS:4370-4377, the first part of ``CucumberMainPhytomerCallbackFunction`` (split out so a species file can use
+    it as the rule ``harvest_ripe_fruit``)."""
     for petiole in phytomer.floral_buds:
         for fbud in petiole:
             if fbud.state == BUD_FRUITING and fbud.current_fruit_scale_factor >= f32(1):
                 phytomer.setFloralBudState(BUD_DEAD, fbud)
 
+
+def cucumberLowerAndLeanStem(phytomer):
+    """AS:4379-4458, the rest of ``CucumberMainPhytomerCallbackFunction`` (the rule ``high_wire_lowering``)."""
     stem = phytomer.parent_shoot_ptr
     if stem.parent_shoot_ID >= 0 or not stem.phytomers or phytomer is not stem.phytomers[-1]:
         return
@@ -379,4 +389,4 @@ def _cucumber_main_phytomer_callback(phytomer):
 __all__ = ["initializeCucumberShoots", "buildCucumberPlant", "CucumberFruitPrototype", "CucumberFlowerPrototype",
            "CucumberMainPhytomerCreationFunction", "CucumberMainPhytomerCallbackFunction",
            "CucumberStringAttractionPoints", "cucumberLoweredStemPath", "enableAttractionPoints",
-           "updateAttractionPoints"]
+           "updateAttractionPoints", "cucumberHarvestFullSizeFruit", "cucumberLowerAndLeanStem"]
